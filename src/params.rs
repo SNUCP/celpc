@@ -139,13 +139,36 @@ impl Parameters {
                 0xfffffffba000001,
                 0xfffffffd9000001,
                 0xfffffffe0800001,
-                0xfffffffe8000001,
-                0xffffffffd000001,
             ],
             248,
             1 << 7, // m
             1 << 5, // l
             1 << 6, // k
+            9,      // r
+            f64::exp(2.98),
+            f64::exp(12.73),
+            f64::exp(3.98),
+            f64::exp(5.77),
+        )
+    }
+
+    pub fn bit_20() -> Parameters {
+        Self::new(
+            1,
+            1,
+            1 << 11,
+            0xfffffffffffc001,
+            vec![
+                0xfffffffa5000001,
+                0xfffffffaf800001,
+                0xfffffffba000001,
+                0xfffffffd9000001,
+                0xfffffffe0800001,
+            ],
+            248,
+            1 << 7, // m
+            1 << 6, // l
+            1 << 7, // k
             9,      // r
             f64::exp(2.98),
             f64::exp(12.73),
@@ -161,47 +184,16 @@ impl Parameters {
             1 << 11,
             0xfffffffffffc001,
             vec![
-                0xfffffffa5000001,
-                0xfffffffaf800001,
+                0xffffffee8000001,
+                0xfffffff16000001,
+                0xfffffff4e000001,
                 0xfffffffba000001,
-                0xfffffffd9000001,
-                0xfffffffe0800001,
                 0xfffffffe8000001,
-                0xffffffffd000001,
             ],
             248,
             1 << 7, // m
             1 << 7, // l
             1 << 8, // k
-            9,      // r
-            f64::exp(2.98),
-            f64::exp(12.73),
-            f64::exp(3.98),
-            f64::exp(5.77),
-        )
-    }
-}
-
-impl Default for Parameters {
-    fn default() -> Self {
-        Self::new(
-            1,
-            1,
-            1 << 11,
-            0xfffffffffffc001,
-            vec![
-                0xfffffffa5000001,
-                0xfffffffaf800001,
-                0xfffffffba000001,
-                0xfffffffd9000001,
-                0xfffffffe0800001,
-                0xfffffffe8000001,
-                0xffffffffd000001,
-            ],
-            248,
-            1 << 7, // m
-            1 << 6, // l
-            1 << 7, // k
             9,      // r
             f64::exp(2.98),
             f64::exp(12.73),

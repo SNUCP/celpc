@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     pub fn test_encoder() {
-        let params = Parameters::default();
+        let params = Parameters::bit_20();
         let mut ecd = Encoder::new(&params);
 
         let mut us = UniformSampler::new();

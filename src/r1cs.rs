@@ -1,4 +1,4 @@
-use primitive_types::U256;
+use ethnum::U256;
 use rug::{ops::RemRounding, Integer};
 
 use crate::{csprng::*, ring::*, *};
@@ -82,7 +82,7 @@ impl<'a> R1CSProver<'a> {
 
         // Line 2
         // TODO: This can be removed by just accepting decoded t.
-        let mut tdec = vec![U256::from(0); params.M];
+        let mut tdec = vec![U256::ZERO; params.M];
         for (i, chunk) in tdec.chunks_exact_mut(params.l * params.m).enumerate() {
             self.encoder.decode_chunk_assign(&t[i], chunk)
         }
@@ -104,37 +104,31 @@ impl<'a> R1CSProver<'a> {
             .for_each(|p| self.oracle.write_poly(p));
 
         // Line 4
-        let mut v = vec![U256::from(1); params.M];
+        let mut v = vec![U256::ONE; params.M];
         self.oracle.finalize();
         v[1] = self.oracle.read_range(params.p);
         self.oracle.write_u256(v[1]);
         for i in 2..params.M {
-            v[i] = (v[i - 1] * v[1]) % params.p;
+            v[i] = bmod(v[i - 1] * v[1], params.p, params.pbmod);
         }
 
         // Line 5
-        let mut d = vec![U256::from(0); params.M];
-        let mut buff_vec = vec![U256::from(0); params.M];
+        let mut d = vec![U256::ZERO; params.M];
+        let mut buff_vec = vec![U256::ZERO; params.M];
 
         // B.T*V*a
-        for i in 0..params.M {
-            buff_vec[i] = (a[i] * v[i]) % params.p; // V*a
-        }
+        hadamard_product(&a, &v, params.p, params.pbmod, &mut buff_vec); // V*a
         B.transpose_mul_vec_add_assign(&buff_vec, &mut d); // B.T*V*a
 
         // A.T*V*b
-        for i in 0..params.M {
-            buff_vec[i] = (b[i] * v[i]) % params.p; // V*b
-        }
+        hadamard_product(&b, &v, params.p, params.pbmod, &mut buff_vec); // V*b
         A.transpose_mul_vec_add_assign(&buff_vec, &mut d); // B.T*V*a + A.T*V*b
         C.transpose_mul_vec_sub_assign(&v, &mut d); // B.T*V*a + A.T*V*b - C.T*v
         let d_reuse = d.clone(); // Reuse this in g1
 
         // A.T*V*B*t
         B.mul_vec_assign(&tdec, &mut buff_vec);
-        for i in 0..params.M {
-            buff_vec[i] = (buff_vec[i] * v[i]) % params.p; // V*B*t
-        }
+        hadamard_product_inplace(&v, params.p, params.pbmod, &mut buff_vec); // V*B*t
         A.transpose_mul_vec_add_assign(&buff_vec, &mut d); // B.T*V*a + A.T*V*b - C.T*v + A.T*V*B*t
 
         let mut denc = vec![vec![params.ringq.new_ntt_poly(); params.l]; params.k];
@@ -158,14 +152,14 @@ impl<'a> R1CSProver<'a> {
         }
 
         // Line 9
-        let mut w = vec![U256::from(1); params.M];
+        let mut w = vec![U256::ONE; params.M];
         self.oracle.finalize();
         w[1] = self.oracle.read_range(params.p);
         self.oracle.write_u256(w[1]);
 
         // Line 10
         for i in 2..params.M {
-            w[i] = (w[i - 1] * w[1]) % params.p;
+            w[i] = bmod(w[i - 1] * w[1], params.p, params.pbmod);
         }
 
         // Line 12
@@ -221,52 +215,44 @@ impl<'a> R1CSProver<'a> {
         self.oracle.write_u256(x);
 
         // Line 20
-        let mut edec0 = vec![U256::from(0); params.l * params.m];
+        let mut edec0 = vec![U256::ZERO; params.l * params.m];
         self.encoder.decode_chunk_assign(&e0, &mut edec0);
-        let mut edec1 = vec![U256::from(0); params.l * params.m];
+        let mut edec1 = vec![U256::ZERO; params.l * params.m];
         self.encoder.decode_chunk_assign(&e1, &mut edec1);
-        let mut edec2 = vec![U256::from(0); params.l * params.m];
+        let mut edec2 = vec![U256::ZERO; params.l * params.m];
         self.encoder.decode_chunk_assign(&e2, &mut edec2);
 
         // Line 21
-        let mut f = vec![U256::from(0); params.M];
+        let mut f = vec![U256::ZERO; params.M];
         // B.T*V*A*w
         A.mul_vec_assign(&w, &mut buff_vec);
-        for i in 0..params.M {
-            buff_vec[i] = (buff_vec[i] * v[i]) % params.p; // V*A*w
-        }
+        hadamard_product_inplace(&v, params.p, params.pbmod, &mut buff_vec); // V*A*w
         B.transpose_mul_vec_assign(&buff_vec, &mut f);
 
         // Line 22
-        let mut g0 = U256::from(0);
-        for i in 0..params.M {
-            let mut avb = (v[i] * b[i]) % params.p;
-            avb = (avb * a[i]) % params.p;
-            let cv = (c[i] * v[i]) % params.p;
-
-            if avb >= cv {
-                g0 += avb - cv;
-            } else {
-                g0 += params.p - cv + avb;
-            }
+        let g0;
+        hadamard_product(&v, &b, params.p, params.pbmod, &mut buff_vec);
+        let avb = inner_product(&buff_vec, &a, params.p, params.pbmod);
+        let cv = inner_product(&c, &v, params.p, params.pbmod);
+        if avb >= cv {
+            g0 = avb - cv;
+        } else {
+            g0 = params.p - cv + avb;
         }
-        g0 %= params.p;
+
         let mut g0poly = params.ringmul.new_poly();
         params
             .ringmul
             .set_coeff(&mut g0poly, params.M + 2 * params.l * params.m, g0);
         params.ringmul.ntt(&mut g0poly);
 
-        let mut g1 = U256::from(0);
-        for i in 0..params.M {
-            g1 += (d_reuse[i] * w[i]) % params.p;
-        }
-        g1 %= params.p;
+        let g1 = inner_product(&d_reuse, &w, params.p, params.pbmod);
+
         let mut g1xpoly = params.ringmul.new_poly();
         params.ringmul.set_coeff(
             &mut g1xpoly,
             params.M + 2 * params.l * params.m,
-            (x * g1) % params.p,
+            bmod(g1 * x, params.p, params.pbmod),
         );
         params.ringmul.ntt(&mut g1xpoly);
 
@@ -314,7 +300,7 @@ impl<'a> R1CSProver<'a> {
             params.ringmul.set_coeff(
                 &mut fxpoly,
                 params.l * params.m + params.M - i,
-                (x * f[i]) % params.p,
+                bmod(x * f[i], params.p, params.pbmod),
             );
         }
         params.ringmul.ntt(&mut fxpoly);
@@ -324,7 +310,7 @@ impl<'a> R1CSProver<'a> {
             params.ringmul.set_coeff(
                 &mut wxpolyneg,
                 params.l * params.m + i,
-                params.p - ((x * w[i]) % params.p),
+                params.p - bmod(x * w[i], params.p, params.pbmod),
             );
         }
         params.ringmul.ntt(&mut wxpolyneg);
@@ -345,7 +331,7 @@ impl<'a> R1CSProver<'a> {
         params.ringmul.intt(&mut h);
 
         // Line 30
-        let mut hdec = vec![U256::from(0); 2 * (params.M + params.l * params.m) + 1]; // Add one auxillary zero
+        let mut hdec = vec![U256::ZERO; 2 * (params.M + params.l * params.m) + 1]; // Add one auxillary zero
         let pbig = Integer::from(params.p.as_u128());
         for i in 0..2 * (params.M + params.l * params.m) + 1 {
             let tmp = params.ringmul.get_coeff_balanced(&h, i).rem_euc(&pbig);
@@ -410,14 +396,14 @@ impl<'a> R1CSProver<'a> {
         self.oracle.write_u256(y);
 
         // Line 42
-        let ylm = mod_exp(y, params.l * params.m, params.p);
-        let mut yexp = vec![U256::from(1); 2 * params.k + 2];
+        let ylm = mod_exp(y, params.l * params.m, params.p, params.pbmod);
+        let mut yexp = vec![U256::ONE; 2 * params.k + 2];
         let mut yenc = vec![params.ringq.new_poly(); 2 * params.k + 2];
         // y^(i+1)*lm
         yexp[0] = ylm;
         self.encoder.encode_assign(&[yexp[0]], &mut yenc[0]);
         for i in 1..params.k {
-            yexp[i] = (yexp[i - 1] * ylm) % params.p;
+            yexp[i] = bmod(yexp[i - 1] * ylm, params.p, params.pbmod);
             self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
         }
 
@@ -444,11 +430,11 @@ impl<'a> R1CSProver<'a> {
 
         // Line 44
         // y^M-ilm+1
-        yexp[params.k - 1] = (ylm * y) % params.p;
+        yexp[params.k - 1] = bmod(ylm * y, params.p, params.pbmod);
         self.encoder
             .encode_assign(&[yexp[params.k - 1]], &mut yenc[params.k - 1]);
         for i in (0..params.k - 1).rev() {
-            yexp[i] = (yexp[i + 1] * ylm) % params.p;
+            yexp[i] = bmod(yexp[i + 1] * ylm, params.p, params.pbmod);
             self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
         }
 
@@ -475,16 +461,16 @@ impl<'a> R1CSProver<'a> {
 
         // Line 46
         // y^ilm
-        yexp[0] = U256::from(1);
+        yexp[0] = U256::ONE;
         self.encoder.encode_assign(&[yexp[0]], &mut yenc[0]);
         for i in 1..2 * params.k + 2 {
-            yexp[i] = (yexp[i - 1] * ylm) % params.p;
+            yexp[i] = bmod(yexp[i - 1] * ylm, params.p, params.pbmod);
             if i < params.k + 2 {
                 self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
             }
         }
         for i in params.k + 2..2 * params.k + 2 {
-            yexp[i] = (yexp[i] * y) % params.p;
+            yexp[i] = bmod(yexp[i] * y, params.p, params.pbmod);
             self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
         }
 
@@ -686,10 +672,10 @@ impl<'a> R1CSVerifier<'a> {
             .for_each(|p| self.oracle.write_poly(p));
         self.oracle.finalize();
 
-        let mut v = vec![U256::from(1); params.M];
+        let mut v = vec![U256::ONE; params.M];
         v[1] = self.oracle.read_range(params.p);
         for i in 2..params.M {
-            v[i] = (v[i - 1] * v[1]) % params.p;
+            v[i] = bmod(v[i - 1] * v[1], params.p, params.pbmod);
         }
 
         // w <- v, dcommit
@@ -701,10 +687,10 @@ impl<'a> R1CSVerifier<'a> {
             .for_each(|p| self.oracle.write_poly(p));
         self.oracle.finalize();
 
-        let mut w = vec![U256::from(1); params.M];
+        let mut w = vec![U256::ONE; params.M];
         w[1] = self.oracle.read_range(params.p);
         for i in 2..params.M {
-            w[i] = (w[i - 1] * w[1]) % params.p;
+            w[i] = bmod(w[i - 1] * w[1], params.p, params.pbmod);
         }
 
         // x <- w, ecommit0, ecommit1, ecommit2
@@ -730,57 +716,43 @@ impl<'a> R1CSVerifier<'a> {
 
         let y = self.oracle.read_range(params.p);
 
-        let mut buff_vec = vec![U256::from(0); params.M];
-        let mut f = vec![U256::from(0); params.M];
+        let mut buff_vec = vec![U256::ZERO; params.M];
+        let mut f = vec![U256::ZERO; params.M];
         A.mul_vec_assign(&w, &mut buff_vec);
-        for i in 0..params.M {
-            buff_vec[i] = (buff_vec[i] * v[i]) % params.p; // V*A*w
-        }
+        hadamard_product_inplace(&v, params.p, params.pbmod, &mut buff_vec); // V*A*w
         B.transpose_mul_vec_assign(&buff_vec, &mut f);
 
-        let mut g0 = U256::from(0);
-        for i in 0..params.M {
-            let mut avb = (v[i] * b[i]) % params.p;
-            avb = (avb * a[i]) % params.p;
-            let cv = (c[i] * v[i]) % params.p;
-
-            if avb >= cv {
-                g0 += avb - cv;
-            } else {
-                g0 += params.p + avb - cv;
-            }
+        let g0;
+        hadamard_product(&v, &b, params.p, params.pbmod, &mut buff_vec);
+        let avb = inner_product(&buff_vec, &a, params.p, params.pbmod);
+        let cv = inner_product(&c, &v, params.p, params.pbmod);
+        if avb >= cv {
+            g0 = avb - cv;
+        } else {
+            g0 = params.p - cv + avb;
         }
-        g0 %= params.p;
 
-        let mut g1 = U256::from(0);
-        let mut g1tmp = vec![U256::from(0); params.M];
-        for i in 0..params.M {
-            buff_vec[i] = (v[i] * a[i]) % params.p;
-        }
+        let mut g1tmp = vec![U256::ZERO; params.M];
+        hadamard_product(&v, &a, params.p, params.pbmod, &mut buff_vec);
         B.transpose_mul_vec_assign(&buff_vec, &mut g1tmp);
-        for i in 0..params.M {
-            buff_vec[i] = (v[i] * b[i]) % params.p;
-        }
+        hadamard_product(&v, &b, params.p, params.pbmod, &mut buff_vec);
         A.transpose_mul_vec_add_assign(&buff_vec, &mut g1tmp);
         C.transpose_mul_vec_sub_assign(&v, &mut g1tmp);
-        for i in 0..params.M {
-            g1 += (g1tmp[i] * w[i]) % params.p;
-        }
-        g1 %= params.p;
+        let g1 = inner_product(&g1tmp, &w, params.p, params.pbmod);
 
         // Check commitments
         let mut commit_lhs = vec![params.ringq.new_poly(); params.mu];
         let mut commit_rhs = vec![params.ringq.new_poly(); params.mu];
 
-        let ylm = mod_exp(y, params.l * params.m, params.p);
-        let mut yexp = vec![U256::from(0); 2 * params.k + 2];
+        let ylm = mod_exp(y, params.l * params.m, params.p, params.pbmod);
+        let mut yexp = vec![U256::ZERO; 2 * params.k + 2];
         let mut yenc = vec![params.ringq.new_poly(); 2 * params.k + 2];
 
         // y^(i+1)*lm
         yexp[0] = ylm;
         self.encoder.encode_assign(&[yexp[0]], &mut yenc[0]);
         for i in 1..params.k {
-            yexp[i] = (yexp[i - 1] * ylm) % params.p;
+            yexp[i] = bmod(yexp[i - 1] * ylm, params.p, params.pbmod);
             self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
         }
 
@@ -801,11 +773,11 @@ impl<'a> R1CSVerifier<'a> {
 
         // Line 44
         // y^M-ilm+1
-        yexp[params.k - 1] = (ylm * y) % params.p;
+        yexp[params.k - 1] = bmod(ylm * y, params.p, params.pbmod);
         self.encoder
             .encode_assign(&[yexp[params.k - 1]], &mut yenc[params.k - 1]);
         for i in (0..params.k - 1).rev() {
-            yexp[i] = (yexp[i + 1] * ylm) % params.p;
+            yexp[i] = bmod(yexp[i + 1] * ylm, params.p, params.pbmod);
             self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
         }
 
@@ -826,16 +798,16 @@ impl<'a> R1CSVerifier<'a> {
 
         // Line 46
         // y^ilm
-        yexp[0] = U256::from(1);
+        yexp[0] = U256::ONE;
         self.encoder.encode_assign(&[yexp[0]], &mut yenc[0]);
         for i in 1..2 * params.k + 2 {
-            yexp[i] = (yexp[i - 1] * ylm) % params.p;
+            yexp[i] = bmod(yexp[i - 1] * ylm, params.p, params.pbmod);
             if i < params.k + 2 {
                 self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
             }
         }
         for i in params.k + 2..2 * params.k + 2 {
-            yexp[i] = (yexp[i] * y) % params.p;
+            yexp[i] = bmod(yexp[i] * y, params.p, params.pbmod);
             self.encoder.encode_assign(&[yexp[i]], &mut yenc[i]);
         }
 
@@ -854,52 +826,64 @@ impl<'a> R1CSVerifier<'a> {
             }
         }
 
-        let mut tdec = vec![U256::from(0); params.l * params.m];
-        let mut ddec = vec![U256::from(0); params.l * params.m];
-        let mut hdec = vec![U256::from(0); params.l * params.m];
+        let mut tdec = vec![U256::ZERO; params.l * params.m];
+        let mut ddec = vec![U256::ZERO; params.l * params.m];
+        let mut hdec = vec![U256::ZERO; params.l * params.m];
         self.encoder.decode_chunk_assign(&proof.t, &mut tdec);
         self.encoder.decode_chunk_assign(&proof.d, &mut ddec);
         self.encoder.decode_chunk_assign(&proof.h, &mut hdec);
 
-        let mut yexp = vec![U256::from(1); params.l * params.m];
+        let mut yexp = vec![U256::ONE; params.l * params.m];
         for i in 1..params.l * params.m {
-            yexp[i] = (yexp[i - 1] * y) % params.p;
+            yexp[i] = bmod(yexp[i - 1] * y, params.p, params.pbmod);
         }
 
-        let mut yexplm = vec![U256::from(1); params.M];
-        yexplm[0] = mod_exp(y, params.l * params.m, params.p);
+        let mut yexplm = vec![U256::ONE; params.M];
+        yexplm[0] = mod_exp(y, params.l * params.m, params.p, params.pbmod);
         for i in 1..params.M {
-            yexplm[i] = (yexplm[i - 1] * y) % params.p;
+            yexplm[i] = bmod(yexplm[i - 1] * y, params.p, params.pbmod);
         }
 
-        let yh = (0..params.l * params.m)
-            .fold(U256::from(0), |acc, i| (acc + yexp[i] * hdec[i]) % params.p);
+        let yh = inner_product(&yexp, &hdec, params.p, params.pbmod);
 
-        let yt = (0..params.l * params.m)
-            .fold(U256::from(0), |acc, i| (acc + yexp[i] * tdec[i]) % params.p);
-        let yd = (0..params.l * params.m).fold(U256::from(0), |acc, i| {
-            (acc + yexp[params.l * params.m - i - 1] * ddec[i]) % params.p
-        });
+        let yt = inner_product(&yexp, &tdec, params.p, params.pbmod);
+        let yd = inner_product_rev(&yexp, &ddec, params.p, params.pbmod);
 
-        let fy = (0..params.M).fold(U256::from(0), |acc, i| {
-            let tmp = (yexplm[params.M - i - 1] * f[i]) % params.p;
-            (acc + tmp * y) % params.p
-        });
+        let mut fy = inner_product_rev(&yexplm, &f, params.p, params.pbmod);
+        fy = bmod(fy * y, params.p, params.pbmod);
 
-        let wy = (0..params.M).fold(U256::from(0), |acc, i| (acc + yexplm[i] * w[i]) % params.p);
-        let wyneg = params.p - wy;
+        let wyneg = params.p - inner_product(&yexplm, &w, params.p, params.pbmod);
 
-        let yM2lm = mod_exp(y, params.M + 2 * params.l * params.m, params.p);
-        let g0y = (g0 * yM2lm) % params.p;
-        let g1y = (g1 * yM2lm) % params.p;
+        let yM2lm = mod_exp(
+            y,
+            params.M + 2 * params.l * params.m,
+            params.p,
+            params.pbmod,
+        );
+        let g0y = bmod(g0 * yM2lm, params.p, params.pbmod);
+        let g1y = bmod(g1 * yM2lm, params.p, params.pbmod);
 
-        let t0 = (((yt * yd) % params.p) + g0y) % params.p;
-        let ytfy = (yt * fy) % params.p;
-        let ydwyneg = (yd * wyneg) % params.p;
-        let mut t1 = (ytfy + ydwyneg + g1y) % params.p;
-        t1 = (x * t1) % params.p;
+        let mut t0 = bmod(yt * yd, params.p, params.pbmod);
+        t0 += g0y;
+        if t0 >= params.p {
+            t0 -= params.p;
+        }
 
-        let rhs = (t0 + t1) % params.p;
+        let ytfy = bmod(yt * fy, params.p, params.pbmod);
+        let ydwyneg = bmod(yd * wyneg, params.p, params.pbmod);
+
+        let mut t1 = ytfy + ydwyneg + g1y;
+        if t1 >= (params.p + params.p) {
+            t1 -= params.p + params.p
+        } else if t1 >= params.p {
+            t1 -= params.p;
+        }
+        t1 = bmod(x * t1, params.p, params.pbmod);
+
+        let mut rhs = t0 + t1;
+        if rhs >= params.p {
+            rhs -= params.p;
+        }
 
         return yh == rhs;
     }

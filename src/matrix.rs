@@ -1,8 +1,11 @@
-use primitive_types::U256;
+use ethnum::U256;
+
+use crate::utils::*;
 
 pub struct SparseMatrix {
     pub n: usize,
     pub q: U256,
+    pub qbmod: BarrettConstant,
 
     // CSR Format
     pub row_ptr: Vec<usize>,
@@ -16,6 +19,8 @@ impl SparseMatrix {
         SparseMatrix {
             n,
             q: q,
+            qbmod: gen_barrett_constant(q),
+
             row_ptr: vec![0; n + 1],
             col_idx: vec![],
             values: vec![],
@@ -26,18 +31,20 @@ impl SparseMatrix {
     pub fn new_identity(n: usize, q: U256) -> SparseMatrix {
         let mut row_ptr = vec![0; n + 1];
         let mut col_idx = vec![0; n];
-        let mut values = vec![U256::from(0); n];
+        let mut values = vec![U256::ZERO; n];
 
         for i in 0..n {
             row_ptr[i] = i;
             col_idx[i] = i;
-            values[i] = U256::from(1);
+            values[i] = U256::ONE;
         }
         row_ptr[n] = n;
 
         SparseMatrix {
             n: n,
             q: q,
+            qbmod: gen_barrett_constant(q),
+
             row_ptr: row_ptr,
             col_idx: col_idx,
             values: values,
@@ -46,7 +53,7 @@ impl SparseMatrix {
 
     /// Transforms a sparse matrix to dense matrix.
     pub fn to_dense(&self) -> Vec<Vec<U256>> {
-        let mut m = vec![vec![U256::from(0); self.n]; self.n];
+        let mut m = vec![vec![U256::ZERO; self.n]; self.n];
 
         for i in 0..self.n {
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
@@ -59,7 +66,7 @@ impl SparseMatrix {
 
     /// Multiplies v and returns the result.
     pub fn mul_vec(&self, v: &[U256]) -> Vec<U256> {
-        let mut vout = vec![U256::from(0); self.n];
+        let mut vout = vec![U256::ZERO; self.n];
         self.mul_vec_assign(v, &mut vout);
         return vout;
     }
@@ -67,9 +74,12 @@ impl SparseMatrix {
     /// Multiplies v and writes it to vout.
     pub fn mul_vec_assign(&self, v: &[U256], vout: &mut [U256]) {
         for i in 0..self.n {
-            vout[i] = U256::from(0);
+            vout[i] = U256::ZERO;
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
-                vout[i] = (vout[i] + self.values[j] * v[self.col_idx[j]]) % self.q;
+                vout[i] += bmod(self.values[j] * v[self.col_idx[j]], self.q, self.qbmod);
+                if vout[i] >= self.q {
+                    vout[i] -= self.q;
+                }
             }
         }
     }
@@ -78,7 +88,10 @@ impl SparseMatrix {
     pub fn mul_vec_add_assign(&self, v: &[U256], vout: &mut [U256]) {
         for i in 0..self.n {
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
-                vout[i] = (vout[i] + self.values[j] * v[self.col_idx[j]]) % self.q;
+                vout[i] += bmod(self.values[j] * v[self.col_idx[j]], self.q, self.qbmod);
+                if vout[i] >= self.q {
+                    vout[i] -= self.q;
+                }
             }
         }
     }
@@ -86,21 +99,20 @@ impl SparseMatrix {
     /// Multiplies v and subtracts it from vout.
     pub fn mul_vec_sub_assign(&self, v: &[U256], vout: &mut [U256]) {
         for i in 0..self.n {
-            let mut tmp = U256::from(0);
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
-                tmp = (tmp + self.values[j] * v[self.col_idx[j]]) % self.q;
-            }
-            if vout[i] >= tmp {
-                vout[i] = vout[i] - tmp
-            } else {
-                vout[i] = vout[i] + self.q - tmp
+                let tmp = bmod(self.values[j] * v[self.col_idx[j]], self.q, self.qbmod);
+                if vout[i] >= tmp {
+                    vout[i] = vout[i] - tmp
+                } else {
+                    vout[i] = vout[i] + self.q - tmp
+                }
             }
         }
     }
 
     /// Transposes and multiplies v and returns the result.
     pub fn transpose_mul_vec(&self, v: &[U256]) -> Vec<U256> {
-        let mut vout = vec![U256::from(0); self.n];
+        let mut vout = vec![U256::ZERO; self.n];
         self.transpose_mul_vec_assign(v, &mut vout);
         return vout;
     }
@@ -108,12 +120,15 @@ impl SparseMatrix {
     /// Transposes and multiplies v and writes it to vout.
     pub fn transpose_mul_vec_assign(&self, v: &[U256], vout: &mut [U256]) {
         for i in 0..self.n {
-            vout[i] = U256::from(0);
+            vout[i] = U256::ZERO;
         }
 
         for i in 0..self.n {
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
-                vout[self.col_idx[j]] = (vout[self.col_idx[j]] + self.values[j] * v[i]) % self.q;
+                vout[self.col_idx[j]] += bmod(self.values[j] * v[i], self.q, self.qbmod);
+                if vout[self.col_idx[j]] >= self.q {
+                    vout[self.col_idx[j]] -= self.q;
+                }
             }
         }
     }
@@ -122,7 +137,10 @@ impl SparseMatrix {
     pub fn transpose_mul_vec_add_assign(&self, v: &[U256], vout: &mut [U256]) {
         for i in 0..self.n {
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
-                vout[self.col_idx[j]] = (vout[self.col_idx[j]] + self.values[j] * v[i]) % self.q;
+                vout[self.col_idx[j]] += bmod(self.values[j] * v[i], self.q, self.qbmod);
+                if vout[self.col_idx[j]] >= self.q {
+                    vout[self.col_idx[j]] -= self.q;
+                }
             }
         }
     }
@@ -131,7 +149,7 @@ impl SparseMatrix {
     pub fn transpose_mul_vec_sub_assign(&self, v: &[U256], vout: &mut [U256]) {
         for i in 0..self.n {
             for j in self.row_ptr[i]..self.row_ptr[i + 1] {
-                let tmp = (self.values[j] * v[i]) % self.q;
+                let tmp = bmod(self.values[j] * v[i], self.q, self.qbmod);
                 if vout[self.col_idx[j]] >= tmp {
                     vout[self.col_idx[j]] = vout[self.col_idx[j]] - tmp
                 } else {

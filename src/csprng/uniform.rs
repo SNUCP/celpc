@@ -1,5 +1,5 @@
 use crate::ring::*;
-use primitive_types::U256;
+use ethnum::U256;
 use rand::prelude::*;
 use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
@@ -43,8 +43,9 @@ impl UniformSampler {
 
     /// Samples a random u256 value.
     pub fn sample_u256(&mut self) -> U256 {
-        self.xof.read(&mut self.buf);
-        U256::from_big_endian(&self.buf)
+        let mut buf = [0u8; 32];
+        self.xof.read(&mut buf);
+        U256::from_le_bytes(buf)
     }
 
     /// Samples a random u64 value.

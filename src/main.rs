@@ -3,9 +3,8 @@
 use std::time::Instant;
 
 use apok::csprng::*;
-use apok::ring::*;
 use apok::*;
-use primitive_types::U256;
+use ethnum::U256;
 
 fn main() {
     let params = Parameters::default();
@@ -14,7 +13,7 @@ fn main() {
     let mut gs = KarneySampler::new();
 
     let mut m = vec![params.ringq.new_poly(); params.l];
-    let mut msg = vec![U256::from(0); params.m];
+    let mut msg = vec![U256::ZERO; params.m];
     for i in 0..params.l {
         for j in 0..params.m {
             msg[j] = us.sample_u256() % params.p;
@@ -63,17 +62,17 @@ fn main() {
     let B = SparseMatrix::new_identity(params.M, params.p);
     let C = SparseMatrix::new_identity(params.M, params.p);
 
-    let a = vec![U256::from(1); params.M];
-    let b = vec![U256::from(2); params.M];
-    let c = vec![U256::from(5); params.M];
+    let a = vec![U256::from(1u32); params.M];
+    let b = vec![U256::from(2u32); params.M];
+    let c = vec![U256::from(5u32); params.M];
 
-    let tu = vec![U256::from(1); params.m];
+    let tu = vec![U256::from(1u32); params.m];
     let mut t = vec![vec![params.ringq.new_ntt_poly(); params.l]; params.k];
     let mut tau = vec![vec![params.ringq.new_ntt_poly(); params.munu]; params.k];
     let mut tcommit = vec![vec![params.ringq.new_ntt_poly(); params.mu]; params.k];
     for i in 0..params.k {
         for j in 0..params.l {
-            ecd.encode_assign(&tu, &mut t[i][j]);
+            ecd.encode_randomized_assign(&tu, params.s1, &mut t[i][j]);
         }
         for j in 0..params.munu {
             gs.sample_poly_assign(&params.ringq, 0.0, params.sig1, &mut tau[i][j]);

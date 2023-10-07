@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 concrete-ntt = { version = "0.1", features = ["nightly"] }
-primitive-types = "0.12"
 rug = "1.22.0"
 rand = "0.8.5"
 sha3 = "0.10"
+ethnum = "1.4.0"

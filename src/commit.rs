@@ -117,7 +117,7 @@ impl<'a> Comitter<'a> {
 mod tests {
     use crate::csprng::*;
     use crate::*;
-    use primitive_types::U256;
+    use ethnum::U256;
 
     #[test]
     fn test_commit() {
@@ -127,7 +127,7 @@ mod tests {
         let mut gs = KarneySampler::new();
 
         let mut m = vec![params.ringq.new_ntt_poly(); params.l];
-        let mut msg = vec![U256::from(0); params.m];
+        let mut msg = vec![U256::ZERO; params.m];
         for i in 0..params.l {
             for j in 0..params.m {
                 msg[j] = us.sample_u256() % params.p;

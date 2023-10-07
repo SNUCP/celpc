@@ -1,6 +1,6 @@
 use super::*;
 use concrete_ntt::prime64::Plan;
-use primitive_types::U256;
+use ethnum::U256;
 use rug::ops::*;
 use rug::Integer;
 
@@ -95,7 +95,7 @@ impl Ring {
     /// Sets the coefficient of the polynomial at the given index to the given value.
     pub fn set_coeff(&self, p: &mut Poly, idx: usize, coeff: U256) {
         for (i, &q) in self.moduli.iter().enumerate() {
-            p.coeffs[i][idx] = (coeff % q).as_u64();
+            p.coeffs[i][idx] = (coeff % U256::from(q)).as_u64();
         }
     }
 
@@ -301,33 +301,6 @@ impl Ring {
                 buff[j] = self.moduli[i] - p1.coeffs[i][j];
             }
             self.plans[i].mul_accumulate(&mut pout.coeffs[i], &buff, &p2.coeffs[i]);
-        }
-    }
-
-    /// Multiplies p by c and returns it.
-    pub fn scalar_mul(&self, p: &Poly, c: U256) -> Poly {
-        let mut pout = self.new_poly();
-        self.scalar_mul_assign(p, c, &mut pout);
-        return pout;
-    }
-
-    /// Multiplies p by c and writes it to pout.
-    pub fn scalar_mul_assign(&self, p: &Poly, c: U256, pout: &mut Poly) {
-        for (i, &q) in self.moduli.iter().enumerate() {
-            let cq = (c % q).as_u128();
-            for j in 0..self.degree {
-                pout.coeffs[i][j] = (((p.coeffs[i][j] as u128) * cq) % (q as u128)) as u64;
-            }
-        }
-    }
-
-    /// Multiplies p by c and adds it to pout.
-    pub fn scalar_mul_inplace(&self, c: U256, pout: &mut Poly) {
-        for (i, &q) in self.moduli.iter().enumerate() {
-            let cq = (c % q).as_u128();
-            for j in 0..self.degree {
-                pout.coeffs[i][j] = (((pout.coeffs[i][j] as u128) * cq) % (q as u128)) as u64;
-            }
         }
     }
 

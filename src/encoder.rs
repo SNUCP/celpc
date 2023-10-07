@@ -1,8 +1,7 @@
 use super::csprng::*;
 use super::ring::*;
 use super::*;
-use primitive_types::U256;
-use rug::Float;
+use ethnum::U256;
 use rug::{ops::*, Assign, Integer};
 
 pub struct Encoder<'a> {
@@ -32,11 +31,13 @@ impl<'a> Encoder<'a> {
     pub fn encode_assign(&self, v: &[U256], pout: &mut Poly) {
         let params = &self.params;
         pout.clear();
+
+        let b256 = U256::from(params.b);
         for (i, a) in v.iter().enumerate() {
             let mut amod = a % self.params.p;
             for j in 0..self.params.kap - 1 {
-                pout.coeffs[0][i + j * params.m] = (amod % params.b).as_u64();
-                amod /= params.b;
+                pout.coeffs[0][i + j * params.m] = (amod % b256).as_u64();
+                amod /= b256;
             }
             pout.coeffs[0][i + params.m * (params.kap - 1)] = amod.as_u64();
         }
@@ -87,13 +88,14 @@ impl<'a> Encoder<'a> {
 
         // Encode v to float
         let bf64 = self.params.b as f64;
+        let b256 = U256::from(params.b);
         for (i, a) in v.iter().enumerate() {
             let mut amod = a % self.params.p;
             for j in 0..self.params.kap - 1 {
-                buff0[i + j * params.m] = (amod % params.b).as_u64() as f64;
-                amod /= params.b;
+                buff0[i + j * params.m] = (amod % b256).as_f64();
+                amod /= b256;
             }
-            buff0[i + params.m * (params.kap - 1)] = amod.as_u64() as f64;
+            buff0[i + params.m * (params.kap - 1)] = amod.as_f64();
         }
 
         // Multiply P^-1 = -1/(b^n/m + 1) (X^(n-m) + b*X^(n-2m) + b^2 X^(n-3m) + ... + b^(n/m-1))
@@ -143,7 +145,7 @@ impl<'a> Encoder<'a> {
     /// Decodes a polynomial into a vector of U256.
     /// Output is always length m.
     pub fn decode(&self, p: &Poly) -> Vec<U256> {
-        let mut vout = vec![U256::from(0); self.params.m];
+        let mut vout = vec![U256::ZERO; self.params.m];
         self.decode_assign(p, &mut vout);
         return vout;
     }
@@ -156,7 +158,7 @@ impl<'a> Encoder<'a> {
         let p_balanced = self.params.ringq.to_balanced(p);
         let mut tmp = Integer::from(0);
         for i in 0..params.m {
-            vout[i] = U256::from(0);
+            vout[i] = U256::ZERO;
             tmp.assign(Integer::ZERO);
             for j in (0..params.kap).rev() {
                 tmp *= params.b;
@@ -183,7 +185,7 @@ impl<'a> Encoder<'a> {
 mod tests {
     use crate::csprng::*;
     use crate::*;
-    use primitive_types::U256;
+    use ethnum::U256;
 
     #[test]
     pub fn test_encoder() {
@@ -192,7 +194,7 @@ mod tests {
 
         let mut us = UniformSampler::new();
 
-        let mut msg = vec![U256::from(0); params.m];
+        let mut msg = vec![U256::ZERO; params.m];
         for j in 0..params.m {
             msg[j] = us.sample_u256() % params.p;
         }

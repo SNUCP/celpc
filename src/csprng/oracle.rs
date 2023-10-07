@@ -1,5 +1,5 @@
 use crate::ring::*;
-use primitive_types::U256;
+use ethnum::U256;
 use sha3::{
     digest::{ExtendableOutput, Reset, Update, XofReader},
     Shake128, Shake128Reader,
@@ -21,8 +21,7 @@ impl Oracle {
 
     /// Writes a u256 value to random oracle.
     pub fn write_u256(&mut self, x: U256) {
-        let mut buff = [0u8; 32];
-        x.to_big_endian(&mut buff);
+        let buff = x.to_le_bytes();
         self.hasher.update(&buff);
     }
 
@@ -48,7 +47,7 @@ impl Oracle {
         let bound = U256::MAX - (U256::MAX % n);
         loop {
             self.xof.read(&mut buff);
-            let x = U256::from_big_endian(&buff);
+            let x = U256::from_le_bytes(buff);
             if x < bound {
                 return x % n;
             }
@@ -59,7 +58,7 @@ impl Oracle {
     pub fn read_u256(&mut self) -> U256 {
         let mut buff = [0u8; 32];
         self.xof.read(&mut buff);
-        U256::from_big_endian(&buff)
+        U256::from_le_bytes(buff)
     }
 
     /// Reads a polynomial.

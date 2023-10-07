@@ -1,4 +1,6 @@
-use primitive_types::U256;
+use ethnum::U256;
+
+use crate::utils::*;
 
 use super::ring::*;
 
@@ -31,6 +33,9 @@ pub struct Parameters {
     /// p is the modulus of the message.
     /// Equals to b^(n/m)+1.
     pub p: U256,
+    /// pbmod is barret constant for
+    /// modulo p.
+    pub pbmod: BarrettConstant,
 
     /// l is the length of packed message.
     pub l: usize,
@@ -68,7 +73,9 @@ impl Parameters {
         s2: f64,
         sig1: f64,
         sig2: f64,
-    ) -> Self {
+    ) -> Parameters {
+        let kap = n / m;
+        let p = U256::from(u128::pow(b as u128, kap as u32) + 1);
         Self {
             mu,
             nu,
@@ -79,8 +86,9 @@ impl Parameters {
             ringmul: Ring::new(4 * k * l * m, &qmul),
             b,
             m,
-            kap: n / m,
-            p: U256::from(u128::pow(b as u128, (n / m) as u32) + 1),
+            kap: kap,
+            p: p,
+            pbmod: gen_barrett_constant(p),
             l,
             k,
             r,
@@ -118,6 +126,60 @@ impl Parameters {
             f64::exp(5.77),
         )
     }
+
+    pub fn bit_18() -> Parameters {
+        Self::new(
+            1,
+            1,
+            1 << 11,
+            0xfffffffffffc001,
+            vec![
+                0xfffffffa5000001,
+                0xfffffffaf800001,
+                0xfffffffba000001,
+                0xfffffffd9000001,
+                0xfffffffe0800001,
+                0xfffffffe8000001,
+                0xffffffffd000001,
+            ],
+            248,
+            1 << 7, // m
+            1 << 5, // l
+            1 << 6, // k
+            9,      // r
+            f64::exp(2.98),
+            f64::exp(12.73),
+            f64::exp(3.98),
+            f64::exp(5.77),
+        )
+    }
+
+    pub fn bit_22() -> Parameters {
+        Self::new(
+            1,
+            1,
+            1 << 11,
+            0xfffffffffffc001,
+            vec![
+                0xfffffffa5000001,
+                0xfffffffaf800001,
+                0xfffffffba000001,
+                0xfffffffd9000001,
+                0xfffffffe0800001,
+                0xfffffffe8000001,
+                0xffffffffd000001,
+            ],
+            248,
+            1 << 7, // m
+            1 << 7, // l
+            1 << 8, // k
+            9,      // r
+            f64::exp(2.98),
+            f64::exp(12.73),
+            f64::exp(3.98),
+            f64::exp(5.77),
+        )
+    }
 }
 
 impl Default for Parameters {
@@ -137,10 +199,10 @@ impl Default for Parameters {
                 0xffffffffd000001,
             ],
             248,
-            1 << 7,
-            1 << 6,
-            1 << 7,
-            11,
+            1 << 7, // m
+            1 << 6, // l
+            1 << 7, // k
+            9,      // r
             f64::exp(2.98),
             f64::exp(12.73),
             f64::exp(3.98),

@@ -88,7 +88,7 @@ impl Parameters {
             m,
             kap: kap,
             p: p,
-            pbmod: gen_barrett_constant(p),
+            pbmod: BarrettConstant::new(p),
             l,
             k,
             r,

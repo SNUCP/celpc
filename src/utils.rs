@@ -18,12 +18,14 @@ pub fn mod_exp(x: U256, y: usize, m: U256, r: BarrettConstant) -> U256 {
 #[derive(Clone, Copy, Debug)]
 pub struct BarrettConstant(U256, U256);
 
-pub fn gen_barrett_constant(q: U256) -> BarrettConstant {
-    let r = U256::MAX / q;
-    let r0 = U256([r.0[0], 0]);
-    let r1 = U256([r.0[1], 0]);
+impl BarrettConstant {
+    pub fn new(q: U256) -> BarrettConstant {
+        let r = U256::MAX / q;
+        let r0 = U256([r.0[0], 0]);
+        let r1 = U256([r.0[1], 0]);
 
-    BarrettConstant(r0, r1)
+        BarrettConstant(r0, r1)
+    }
 }
 
 #[inline]

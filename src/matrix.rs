@@ -19,7 +19,7 @@ impl SparseMatrix {
         SparseMatrix {
             n,
             q: q,
-            qbmod: gen_barrett_constant(q),
+            qbmod: BarrettConstant::new(q),
 
             row_ptr: vec![0; n + 1],
             col_idx: vec![],
@@ -43,7 +43,7 @@ impl SparseMatrix {
         SparseMatrix {
             n: n,
             q: q,
-            qbmod: gen_barrett_constant(q),
+            qbmod: BarrettConstant::new(q),
 
             row_ptr: row_ptr,
             col_idx: col_idx,

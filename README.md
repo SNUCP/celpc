@@ -1,10 +1,8 @@
-# armortized-pok
+# ELSA: Efficient Lattice-based Sublinear Arguments for R1CS without Aborts
 
-Rust Code for [HSS23].
+Rust Code for [HSS23] "Efficient Lattice-based Sublinear Arguments for R1CS without Aborts".
 
-## How to execute
-
-You need to install nightly toolchain of rustc.
+You need to install nightly toolchain of rustc to run the code.
 ```
 $ RUSTFLAGS="-C -target-cpu=native" cargo run --release
 keygen time: 3.998551ms

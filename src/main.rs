@@ -7,7 +7,7 @@ use apok::*;
 use ethnum::U256;
 
 fn main() {
-    let params = Parameters::bit_22();
+    let params = Parameters::bit_20();
     let mut ecd = Encoder::new(&params);
     let mut us = UniformSampler::new();
     let mut gs = KarneySampler::new();

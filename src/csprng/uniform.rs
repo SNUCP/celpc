@@ -65,11 +65,22 @@ impl UniformSampler {
         self.xof.read(buf);
     }
 
-    /// Samples random i64 between [0, n).
+    /// Samples random u64 between [0, n).
     pub fn sample_range(&mut self, n: u64) -> u64 {
         let bound = u64::MAX - (u64::MAX % n);
         loop {
             let x = self.sample_u64();
+            if x < bound {
+                return x % n;
+            }
+        }
+    }
+
+    /// Samples random u256 between [0, n).
+    pub fn sample_range_u256(&mut self, n: U256) -> U256 {
+        let bound = U256::MAX - (U256::MAX % n);
+        loop {
+            let x = self.sample_u256();
             if x < bound {
                 return x % n;
             }

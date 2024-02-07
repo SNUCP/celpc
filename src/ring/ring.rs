@@ -1,7 +1,5 @@
 use super::*;
 use concrete_ntt::prime64::Plan;
-use ethnum::U256;
-use rug::ops::*;
 use rug::Integer;
 
 #[derive(Clone)]
@@ -90,34 +88,6 @@ impl Ring {
             self.plans[i].normalize(&mut poly.coeffs[i]);
         }
         poly.is_ntt = false;
-    }
-
-    /// Sets the coefficient of the polynomial at the given index to the given value.
-    pub fn set_coeff(&self, p: &mut Poly, idx: usize, coeff: U256) {
-        for (i, &q) in self.moduli.iter().enumerate() {
-            p.coeffs[i][idx] = (coeff % U256::from(q)).as_u64();
-        }
-    }
-
-    /// Gets the coefficient of the polynomial at the given index as Integer.
-    pub fn get_coeff(&self, p: &Poly, idx: usize) -> Integer {
-        let mut coeff = Integer::from(0);
-        for i in 0..self.moduli.len() {
-            coeff += Integer::from(p.coeffs[i][idx]) * &self.gadget[i];
-        }
-        coeff.rem_euc_assign(&self.moduli_big);
-        return coeff;
-    }
-
-    /// Gets the balanced coefficient of the polynomial at the given index as Integer.
-    pub fn get_coeff_balanced(&self, p: &Poly, idx: usize) -> Integer {
-        let coeff = self.get_coeff(p, idx);
-        let qhalf = self.moduli_big.clone() >> 1;
-        if coeff >= qhalf {
-            coeff - &self.moduli_big
-        } else {
-            coeff
-        }
     }
 
     /// Maps a polynomial in R_Q to balanced form.
@@ -304,22 +274,18 @@ impl Ring {
         }
     }
 
-    /// Returns the pair of (L2 norm^2, L-infinity norm) of the given polynomial.
-    pub fn norm(&self, p: &Poly) -> (f64, f64) {
+    /// Returns the square of L2 norm of the given polynomial.
+    pub fn norm(&self, p: &Poly) -> f64 {
         let buff = self.to_balanced(p);
         let mut l2 = 0.0;
-        let mut linf = 0.0;
 
         for i in 0..buff.len() {
             for j in 0..buff[i].len() {
                 let c = (buff[i][j] as f64).abs();
                 l2 += c * c;
-                if c > linf {
-                    linf = c;
-                }
             }
         }
 
-        return (l2, linf);
+        return l2;
     }
 }

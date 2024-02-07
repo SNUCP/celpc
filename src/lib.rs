@@ -12,14 +12,8 @@ pub use encoder::*;
 pub mod commit;
 pub use commit::*;
 
-pub mod ajtai;
-pub use ajtai::*;
-
-pub mod matrix;
-pub use matrix::*;
-
-pub mod r1cs;
-pub use r1cs::*;
+pub mod polynomial_commitment;
+pub use polynomial_commitment::*;
 
 pub mod utils;
 pub use utils::*;

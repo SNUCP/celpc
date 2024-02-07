@@ -1,4 +1,5 @@
 use ethnum::U256;
+use primitive_types::U512;
 
 #[inline]
 pub fn mod_exp(x: U256, y: usize, m: U256, r: BarrettConstant) -> U256 {
@@ -26,6 +27,18 @@ impl BarrettConstant {
 
         BarrettConstant(r0, r1)
     }
+}
+
+#[inline]
+pub fn mulmod(x: U256, y: U256, q: U512) -> U256 {
+    let x512 = U512::from_big_endian(&x.to_be_bytes());
+    let y512 = U512::from_big_endian(&y.to_be_bytes());
+    let xy = x512 * y512 % q;
+
+    let mut res = U256::ZERO;
+    res.0[0] = ((xy.0[1] as u128) << 64) | (xy.0[0] as u128);
+    res.0[1] = ((xy.0[3] as u128) << 64) | (xy.0[2] as u128);
+    return res;
 }
 
 #[inline]

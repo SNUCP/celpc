@@ -43,21 +43,21 @@ impl<'a> Comitter<'a> {
         }
     }
 
-    /// Commits a new packed message with randomness r.
-    /// Message is of size l.
-    /// Randomness is of size munu.
+    /// Commits a new packed message with randomness rand.
+    /// Message should be of size l, which is a randomized encoding of n Z_p elements.
+    /// Randomness should be of size munu.
     /// Commitment is of size mu.
-    pub fn commit(&self, message: &[Poly], mu: &[Poly]) -> Vec<Poly> {
+    pub fn commit(&self, message: &[Poly], rand: &[Poly]) -> Vec<Poly> {
         let mut commit_out = vec![self.params.ringq.new_ntt_poly(); self.params.mu];
-        self.commit_assign(message, mu, &mut commit_out);
+        self.commit_assign(message, rand, &mut commit_out);
         commit_out
     }
 
     /// Commits a new packed message with randomness r.
-    /// Message is of size l.
-    /// Randomness is of size munu.
-    /// Commitment is of size mu.
-    pub fn commit_assign(self: &Self, m: &[Poly], mu: &[Poly], commit_out: &mut [Poly]) {
+    /// Message should be of size l, which is a randomized encoding of n Z_p elements.
+    /// Randomness should be of size munu.
+    /// Commitment should be of size mu.
+    pub fn commit_assign(self: &Self, message: &[Poly], rand: &[Poly], commit_out: &mut [Poly]) {
         let params = self.params;
 
         for i in 0..params.mu {
@@ -70,7 +70,7 @@ impl<'a> Comitter<'a> {
             for j in 0..params.l {
                 params
                     .ringq
-                    .mul_add_inplace(&self.key.A0[i][j], &m[j], &mut commit_out[i]);
+                    .mul_add_inplace(&self.key.A0[i][j], &message[j], &mut commit_out[i]);
             }
         }
 
@@ -79,72 +79,11 @@ impl<'a> Comitter<'a> {
             for j in 0..params.nu {
                 params
                     .ringq
-                    .mul_add_inplace(&self.key.A1[i][j], &mu[j], &mut commit_out[i]);
+                    .mul_add_inplace(&self.key.A1[i][j], &rand[j], &mut commit_out[i]);
             }
             params
                 .ringq
-                .add_inplace(&mu[params.mu + i], &mut commit_out[i]);
-        }
-    }
-
-    /// Opens a commitment.
-    /// Message is of size l.
-    /// Randomness is of size munu.
-    /// Commitment is of size mu.
-    pub fn open(&self, m: &[Poly], mu: &[Poly], bound: (f64, f64), commit: &[Poly]) -> bool {
-        let params = &self.params;
-
-        let (l2, linf) = m.iter().chain(mu).fold((0.0, 0.0), |acc, x| {
-            let (l2, linf) = params.ringq.norm(x);
-            (acc.0 + l2, f64::max(acc.1, linf))
-        });
-        if !(l2.sqrt() < bound.0 && linf < bound.1) {
-            return false;
-        }
-
-        let commit_out = self.commit(m, mu);
-        for i in 0..params.mu {
-            if !&commit[i].equal(&commit_out[i]) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::csprng::*;
-    use crate::*;
-    use ethnum::U256;
-
-    #[test]
-    fn test_commit() {
-        let params = Parameters::small();
-        let ecd = Encoder::new(&params);
-        let mut us = UniformSampler::new();
-        let mut gs = KarneySampler::new();
-
-        let mut m = vec![params.ringq.new_ntt_poly(); params.l];
-        let mut msg = vec![U256::ZERO; params.m];
-        for i in 0..params.l {
-            for j in 0..params.m {
-                msg[j] = us.sample_u256() % params.p;
-            }
-            ecd.encode_assign(&msg, &mut m[i]);
-        }
-
-        let mut mu = vec![params.ringq.new_ntt_poly(); params.munu];
-        for i in 0..params.munu {
-            gs.sample_poly_assign(&params.ringq, 0.0, 3.2, &mut mu[i]);
-        }
-
-        let ck = CommitKey::new(&params, &[0u8; 32]);
-        let commiter = Comitter::new(&params, &ck);
-        let commit = commiter.commit(&m, &mu);
-        if !commiter.open(&m, &mu, (f64::exp2(30.0), f64::exp(30.0)), &commit) {
-            panic!("commitment failed to open");
+                .add_inplace(&rand[params.mu + i], &mut commit_out[i]);
         }
     }
 }

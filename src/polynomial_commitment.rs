@@ -77,18 +77,18 @@ impl<'a> PolynomialProver<'a> {
         let mut eta = vec![vec![self.params.ringq.new_poly(); self.params.munu]; self.params.m + 2];
         for i in 0..self.params.m + 1 {
             for j in 0..self.params.munu {
-                self.gaussian_sampler.sample_poly_assign(
+                self.gaussian_sampler.sample_poly_exact_assign(
                     &self.params.ringq,
-                    0.0,
+                    0,
                     self.params.sig1,
                     &mut eta[i][j],
                 );
             }
         }
         for j in 0..self.params.munu {
-            self.gaussian_sampler.sample_poly_assign(
+            self.gaussian_sampler.sample_poly_exact_assign(
                 &self.params.ringq,
-                0.0,
+                0,
                 (self.params.m as f64 + 2.0).sqrt() * self.params.sig3,
                 &mut eta[self.params.m + 1][j],
             );
@@ -184,7 +184,7 @@ impl<'a> PolynomialProver<'a> {
                 .encode_randomized_chunk_assign(&g_raw[i], s2_m, &mut g[i]);
             gamma[i].iter_mut().for_each(|p| {
                 self.gaussian_sampler
-                    .sample_poly_assign(&self.params.ringq, 0.0, sig2_m, p);
+                    .sample_poly_exact_assign(&self.params.ringq, 0, sig2_m, p);
             });
             self.comitter
                 .commit_assign(&g[i], &gamma[i], &mut g_commit[i]);

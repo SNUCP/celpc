@@ -2,23 +2,16 @@ use super::csprng::*;
 use super::ring::*;
 use super::*;
 use ethnum::U256;
+use primitive_types::U512;
+use rug::Integer;
 
 pub struct PolynomialCommitment {
-    pub b0: Vec<Poly>,
-    pub b1: Vec<Poly>,
-    pub beta0: Vec<Poly>,
-    pub beta1: Vec<Poly>,
-    pub b0_commit: Vec<Poly>,
-    pub b1_commit: Vec<Poly>,
-
     pub h: Vec<Vec<Poly>>,
     pub eta: Vec<Vec<Poly>>,
     pub h_commit: Vec<Vec<Poly>>,
 }
 
 pub struct EvaluationProof {
-    pub y_raw: U256,
-
     pub e: Vec<Poly>,
     pub eps: Vec<Poly>,
 }
@@ -61,172 +54,154 @@ impl<'a> PolynomialProver<'a> {
     pub fn commit(&mut self, h_raw: &[U256]) -> PolynomialCommitment {
         assert_eq!(h_raw.len(), self.params.m * self.params.n);
 
-        let mut h = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; self.params.m];
+        let mut b0 = vec![U256::ZERO; self.params.n];
+        let mut b1 = vec![U256::ZERO; self.params.n];
+        for i in 0..self.params.n - 1 {
+            b0[i] = self.uniform_sampler.sample_range_u256(self.params.p);
+            b1[i + 1] = self.params.p - b0[i];
+        }
+
+        let mut h = vec![vec![self.params.ringq.new_poly(); self.params.l]; self.params.m + 2];
         for (i, h_raw_chunk) in h_raw.chunks_exact(self.params.n).enumerate() {
             self.encoder
                 .encode_randomized_chunk_assign(h_raw_chunk, self.params.s1, &mut h[i]);
         }
+        self.encoder
+            .encode_randomized_chunk_assign(&b0, self.params.s1, &mut h[self.params.m]);
+        self.encoder.encode_randomized_chunk_assign(
+            &b1,
+            (self.params.m as f64 + 2.0).sqrt() * self.params.s3,
+            &mut h[self.params.m + 1],
+        );
 
-        let mut eta = vec![vec![self.params.ringq.new_ntt_poly(); self.params.munu]; self.params.m];
-        eta.iter_mut().flatten().for_each(|p| {
-            self.gaussian_sampler
-                .sample_poly_assign(&self.params.ringq, 0.0, self.params.sig1, p)
-        });
-
+        let mut eta = vec![vec![self.params.ringq.new_poly(); self.params.munu]; self.params.m + 2];
+        for i in 0..self.params.m + 1 {
+            for j in 0..self.params.munu {
+                self.gaussian_sampler.sample_poly_assign(
+                    &self.params.ringq,
+                    0.0,
+                    self.params.sig1,
+                    &mut eta[i][j],
+                );
+            }
+        }
+        for j in 0..self.params.munu {
+            self.gaussian_sampler.sample_poly_assign(
+                &self.params.ringq,
+                0.0,
+                (self.params.m as f64 + 2.0).sqrt() * self.params.sig3,
+                &mut eta[self.params.m + 1][j],
+            );
+        }
         let mut h_commit =
-            vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; self.params.m];
-        for i in 0..self.params.m {
+            vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; self.params.m + 2];
+        for i in 0..self.params.m + 2 {
             self.comitter
                 .commit_assign(&h[i], &eta[i], &mut h_commit[i]);
         }
 
-        let mut b0_raw = vec![U256::ZERO; self.params.n];
-        let mut b1_raw = vec![U256::ZERO; self.params.n];
-        for i in 0..self.params.n - 1 {
-            let b = self.uniform_sampler.sample_range_u256(self.params.p);
-            b0_raw[i + 1] = b.wrapping_neg();
-            b1_raw[i] = b;
-        }
-
-        let t = ((self.params.m as f64) + 2.0).sqrt();
-        let mut b0 = vec![self.params.ringq.new_ntt_poly(); self.params.l];
-        self.encoder
-            .encode_randomized_chunk_assign(&b0_raw, t * self.params.s3, &mut b0);
-
-        let mut beta0 = vec![self.params.ringq.new_ntt_poly(); self.params.munu];
-        beta0.iter_mut().for_each(|p| {
-            self.gaussian_sampler.sample_poly_assign(
-                &self.params.ringq,
-                0.0,
-                t * self.params.sig3,
-                p,
-            )
-        });
-
-        let mut b0_commit = vec![self.params.ringq.new_ntt_poly(); self.params.mu];
-        self.comitter.commit_assign(&b0, &beta0, &mut b0_commit);
-
-        let mut b1 = vec![self.params.ringq.new_ntt_poly(); self.params.l];
-        self.encoder
-            .encode_randomized_chunk_assign(&b1_raw, self.params.s1, &mut b1);
-
-        let mut beta1 = vec![self.params.ringq.new_ntt_poly(); self.params.munu];
-        beta1.iter_mut().for_each(|p| {
-            self.gaussian_sampler
-                .sample_poly_assign(&self.params.ringq, 0.0, self.params.sig1, p)
-        });
-
-        let mut b1_commit = vec![self.params.ringq.new_ntt_poly(); self.params.mu];
-        self.comitter.commit_assign(&b1, &beta1, &mut b1_commit);
-
-        PolynomialCommitment {
+        return PolynomialCommitment {
             h: h,
             eta: eta,
             h_commit: h_commit,
-
-            b0: b0,
-            b1: b1,
-            beta0: beta0,
-            beta1: beta1,
-            b0_commit: b0_commit,
-            b1_commit: b1_commit,
-        }
+        };
     }
 
     /// Generates an evaluation proof using Polynomial Commitment.
-    pub fn evaluate(&mut self, x_raw: U256, pc: PolynomialCommitment) -> EvaluationProof {
-        let mut x_buf = self.encoder.encode(&[x_raw]);
-        let mut x_raw_powers = vec![U256::ONE; self.params.n];
-        for i in 1..self.params.n {
-            x_raw_powers[i] = bmod(x_raw_powers[i - 1] * x_raw, self.params.p, self.params.pr);
+    pub fn evaluate(&mut self, x_raw: U256, pc: &PolynomialCommitment) -> (U256, EvaluationProof) {
+        let x = self.encoder.encode(&[x_raw]);
+
+        let x512n_raw = mod_up(mod_exp(x_raw, self.params.n, self.params.p512));
+        let mut xn_powers = vec![self.params.ringq.new_ntt_poly(); self.params.m];
+        let mut xn_power_raw = U512::one();
+        self.encoder
+            .encode_assign(&[mod_down(xn_power_raw)], &mut xn_powers[0]);
+        for i in 1..self.params.m {
+            xn_power_raw = (xn_power_raw * x512n_raw) % self.params.p512;
+            self.encoder
+                .encode_assign(&[mod_down(xn_power_raw)], &mut xn_powers[i]);
         }
 
         let mut e = vec![self.params.ringq.new_ntt_poly(); self.params.l];
         for i in 0..self.params.l {
-            self.params.ringq.mul_assign(&x_buf, &pc.b1[i], &mut e[i]);
-            self.params.ringq.add_inplace(&pc.b0[i], &mut e[i]);
-        }
-        let mut eps = vec![self.params.ringq.new_ntt_poly(); self.params.munu];
-        for i in 0..self.params.munu {
+            e[i].coeffs.clone_from(&pc.h[self.params.m + 1][i].coeffs);
             self.params
                 .ringq
-                .mul_assign(&x_buf, &pc.beta1[i], &mut eps[i]);
-            self.params.ringq.add_inplace(&pc.beta0[i], &mut eps[i]);
+                .mul_add_inplace(&x, &pc.h[self.params.m][i], &mut e[i]);
+            for j in 0..self.params.m {
+                self.params
+                    .ringq
+                    .mul_add_inplace(&xn_powers[j], &pc.h[j][i], &mut e[i]);
+            }
         }
 
-        for i in 0..self.params.m {
-            self.encoder
-                .encode_assign(&[x_raw_powers[i * self.params.n]], &mut x_buf);
-            for j in 0..self.params.l {
+        let mut eps = vec![self.params.ringq.new_ntt_poly(); self.params.munu];
+        for i in 0..self.params.munu {
+            eps[i]
+                .coeffs
+                .clone_from(&pc.eta[self.params.m + 1][i].coeffs);
+            self.params
+                .ringq
+                .mul_add_inplace(&x, &pc.eta[self.params.m][i], &mut eps[i]);
+            for j in 0..self.params.m {
                 self.params
                     .ringq
-                    .mul_add_inplace(&x_buf, &pc.h[i][j], &mut e[j]);
+                    .mul_add_inplace(&xn_powers[j], &pc.eta[j][i], &mut eps[i]);
             }
-            for j in 0..self.params.munu {
-                self.params
-                    .ringq
-                    .mul_add_inplace(&x_buf, &pc.eta[i][j], &mut eps[j]);
-            }
+        }
+
+        let mut e_intt = e.clone();
+        for p in e_intt.iter_mut() {
+            self.params.ringq.intt(p);
         }
 
         let mut e_dcd = vec![U256::ZERO; self.params.n];
-        self.encoder.decode_chunk_assign(&e, &mut e_dcd);
-        let y_raw = inner_product(&x_raw_powers, &e_dcd, self.params.p, self.params.pr);
+        self.encoder.decode_chunk_assign(&e_intt, &mut e_dcd);
 
-        EvaluationProof {
-            y_raw: y_raw,
-            e: e,
-            eps: eps,
+        let mut y_raw = mod_up(e_dcd[self.params.n - 1]);
+        let x512_raw = mod_up(x_raw);
+        for i in (0..self.params.n - 1).rev() {
+            y_raw = y_raw * x512_raw + mod_up(e_dcd[i]);
+            y_raw %= self.params.p512;
         }
+
+        return (mod_down(y_raw), EvaluationProof { e: e, eps: eps });
     }
 
-    pub fn prove(&mut self, pc: PolynomialCommitment) -> OpenProof {
-        let k = LAMBDA / (self.params.d.ilog2() as usize);
-        let sm = (self.params.m as f64 + 2.0).sqrt();
+    pub fn prove(&mut self, pc: &PolynomialCommitment) -> OpenProof {
+        let kp = ((LAMBDA as f64) / (2.0 * (self.params.d.ilog2() as f64))).ceil() as usize;
 
-        let mut g_raw = vec![U256::ZERO; self.params.n];
-        let mut g = vec![self.params.ringq.new_ntt_poly(); self.params.l];
-        let mut gamma = vec![self.params.ringq.new_ntt_poly(); self.params.munu];
-        let mut g_commit = vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; k];
-        for i in 0..k {
-            for j in 0..self.params.n {
-                g_raw[j] = self.uniform_sampler.sample_range_u256(self.params.p);
-            }
+        let s2_m = ((self.params.m + 2) as f64).sqrt() * self.params.s2;
+        let sig2_m = ((self.params.m + 2) as f64).sqrt() * self.params.sig2;
+
+        let mut g_raw = vec![vec![U256::ZERO; self.params.n]; kp];
+        let mut g = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; kp];
+        let mut gamma = vec![vec![self.params.ringq.new_ntt_poly(); self.params.munu]; kp];
+        let mut g_commit = vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; kp];
+        for i in 0..kp {
+            g_raw[i].fill_with(|| self.uniform_sampler.sample_range_u256(self.params.p));
             self.encoder
-                .encode_randomized_chunk_assign(&g_raw, self.params.s1, &mut g);
-            gamma.iter_mut().for_each(|p| {
-                self.gaussian_sampler.sample_poly_assign(
-                    &self.params.ringq,
-                    0.0,
-                    sm * self.params.sig2,
-                    p,
-                )
+                .encode_randomized_chunk_assign(&g_raw[i], s2_m, &mut g[i]);
+            gamma[i].iter_mut().for_each(|p| {
+                self.gaussian_sampler
+                    .sample_poly_assign(&self.params.ringq, 0.0, sig2_m, p);
             });
-            self.comitter.commit_assign(&g, &gamma, &mut g_commit[i]);
+            self.comitter
+                .commit_assign(&g[i], &gamma[i], &mut g_commit[i]);
+            g_commit[i].iter().for_each(|p| self.oracle.write_poly(p));
         }
 
-        g_commit.iter().flatten().for_each(|p| {
-            self.oracle.write_poly(p);
-        });
         self.oracle.finalize();
-
-        let mut ch = vec![vec![self.params.ringq.new_ntt_poly(); self.params.m + 1]; k];
+        let mut ch = vec![vec![self.params.ringq.new_ntt_poly(); self.params.m + 1]; kp];
         ch.iter_mut()
             .flatten()
             .for_each(|p| self.oracle.read_monomial_assign(&self.params.ringq, p));
 
-        let mut t = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; k];
-        let mut tau = vec![vec![self.params.ringq.new_ntt_poly(); self.params.munu]; k];
-        for i in 0..k {
-            for j in 0..self.params.l {
-                self.params.ringq.mul_add_inplace(
-                    &ch[i][self.params.m + 1],
-                    &pc.b1[j],
-                    &mut t[i][j],
-                );
-                self.params.ringq.add_inplace(&g[i], &mut t[i][j]);
-            }
-            for j in 0..self.params.m {
+        let mut t = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; kp];
+        let mut tau = vec![vec![self.params.ringq.new_ntt_poly(); self.params.munu]; kp];
+        for i in 0..kp {
+            t[i].clone_from(&g[i]);
+            for j in 0..self.params.m + 1 {
                 for k in 0..self.params.l {
                     self.params
                         .ringq
@@ -234,15 +209,8 @@ impl<'a> PolynomialProver<'a> {
                 }
             }
 
-            for j in 0..self.params.munu {
-                self.params.ringq.mul_add_inplace(
-                    &ch[i][self.params.m + 1],
-                    &pc.beta1[j],
-                    &mut tau[i][j],
-                );
-                self.params.ringq.add_inplace(&gamma[j], &mut tau[i][j]);
-            }
-            for j in 0..self.params.m {
+            tau[i].clone_from(&gamma[i]);
+            for j in 0..self.params.m + 1 {
                 for k in 0..self.params.munu {
                     self.params
                         .ringq
@@ -251,11 +219,11 @@ impl<'a> PolynomialProver<'a> {
             }
         }
 
-        OpenProof {
+        return OpenProof {
             ch: ch,
             t: t,
             tau: tau,
-        }
+        };
     }
 }
 
@@ -269,8 +237,6 @@ pub struct PolynomialVerifier<'a> {
     pub key: &'a CommitKey,
 
     pub comitter: Comitter<'a>,
-
-    pub open_bound: f64,
 }
 
 impl<'a> PolynomialVerifier<'a> {
@@ -285,8 +251,6 @@ impl<'a> PolynomialVerifier<'a> {
             key: key,
 
             comitter: Comitter::new(params, key),
-
-            open_bound: 0.0,
         }
     }
 
@@ -294,96 +258,119 @@ impl<'a> PolynomialVerifier<'a> {
         &mut self,
         x_raw: U256,
         y_raw: U256,
-        pc: PolynomialCommitment,
-        ep: EvaluationProof,
+        pc: &PolynomialCommitment,
+        ep: &EvaluationProof,
     ) -> bool {
-        let ep_norm2 =
-            ep.e.iter()
-                .chain(ep.eps.iter())
-                .fold(0.0, |acc, p| acc + self.params.ringq.norm(p));
-        if ep_norm2 > self.open_bound {
+        let mut e_intt = ep.e.clone();
+        for p in e_intt.iter_mut() {
+            self.params.ringq.intt(p);
+        }
+        let mut eps_intt = ep.eps.clone();
+        for p in eps_intt.iter_mut() {
+            self.params.ringq.intt(p);
+        }
+
+        let ev_norm2 = e_intt
+            .iter()
+            .chain(eps_intt.iter())
+            .fold(Integer::ZERO, |acc, p| acc + self.params.ringq.norm(p));
+
+        if (ev_norm2.significant_bits() - 1) as f64 > 2.0 * self.params.log_bound_eval {
             return false;
         }
 
-        let mut x_raw_powers = vec![U256::ONE; self.params.n];
-        for i in 1..self.params.n {
-            x_raw_powers[i] = bmod(x_raw_powers[i - 1] * x_raw, self.params.p, self.params.pr);
+        let x = self.encoder.encode(&[x_raw]);
+        let x512n_raw = mod_up(mod_exp(x_raw, self.params.n, self.params.p512));
+        let mut xn_powers = vec![self.params.ringq.new_ntt_poly(); self.params.m];
+        let mut xn_power_raw = U512::one();
+        self.encoder
+            .encode_assign(&[mod_down(xn_power_raw)], &mut xn_powers[0]);
+        for i in 1..self.params.m {
+            xn_power_raw = (xn_power_raw * x512n_raw) % self.params.p512;
+            self.encoder
+                .encode_assign(&[mod_down(xn_power_raw)], &mut xn_powers[i]);
         }
+
         let mut e_dcd = vec![U256::ZERO; self.params.n];
-        self.encoder.decode_chunk_assign(&ep.e, &mut e_dcd);
-        if y_raw != inner_product(&x_raw_powers, &e_dcd, self.params.p, self.params.pr) {
+        self.encoder.decode_chunk_assign(&e_intt, &mut e_dcd);
+
+        let mut y_raw_check = mod_up(e_dcd[self.params.n - 1]);
+        let x512_raw = mod_up(x_raw);
+        for i in (0..self.params.n - 1).rev() {
+            y_raw_check = y_raw_check * x512_raw + mod_up(e_dcd[i]);
+            y_raw_check %= self.params.p512;
+        }
+        if y_raw != mod_down(y_raw_check) {
             return false;
         }
 
-        let mut pc_out0 = vec![self.params.ringq.new_ntt_poly(); self.params.l];
-        let mut x_buf = self.encoder.encode(&[x_raw]);
-        for i in 0..self.params.l {
+        let mut commit_check = self.comitter.commit(&ep.e, &ep.eps);
+        for i in 0..self.params.mu {
             self.params
                 .ringq
-                .mul_add_inplace(&x_buf, &pc.b1[i], &mut pc_out0[i]);
-            self.params.ringq.add_inplace(&pc.b0[i], &mut pc_out0[i]);
-        }
-        for i in 0..self.params.m {
-            self.encoder
-                .encode_assign(&[x_raw_powers[i * self.params.n]], &mut x_buf);
-            for j in 0..self.params.l {
-                self.params
-                    .ringq
-                    .mul_add_inplace(&x_buf, &pc.h[i][j], &mut pc_out0[j]);
+                .sub_inplace(&pc.h_commit[self.params.m + 1][i], &mut commit_check[i]);
+            self.params.ringq.mul_sub_inplace(
+                &x,
+                &pc.h_commit[self.params.m][i],
+                &mut commit_check[i],
+            );
+
+            for j in 0..self.params.m {
+                self.params.ringq.mul_sub_inplace(
+                    &xn_powers[j],
+                    &pc.h_commit[j][i],
+                    &mut commit_check[i],
+                );
             }
         }
 
-        let pc_out1 = self.comitter.commit(&ep.e, &ep.eps);
-        if pc_out0.iter().zip(pc_out1.iter()).any(|(a, b)| !a.equal(b)) {
+        if commit_check.iter().any(|p| !p.is_zero()) {
             return false;
         }
 
         return true;
     }
 
-    pub fn verify(&mut self, pc: PolynomialCommitment, op: OpenProof) -> bool {
-        let k = LAMBDA / (self.params.d.ilog2() as usize);
+    pub fn verify(&mut self, pc: &PolynomialCommitment, op: &OpenProof) -> bool {
+        let kp = ((LAMBDA as f64) / (2.0 * (self.params.d.ilog2() as f64))).ceil() as usize;
 
-        let mut pc_out = vec![self.params.ringq.new_ntt_poly(); self.params.mu];
-
-        for i in 0..k {
+        for i in 0..kp {
             let op_norm2 = op.t[i]
                 .iter()
                 .chain(op.tau[i].iter())
-                .fold(0.0, |acc, p| acc + self.params.ringq.norm(p));
-            if op_norm2 > self.open_bound {
+                .fold(Integer::ZERO, |acc, p| acc + self.params.ringq.norm(p));
+
+            if (op_norm2.significant_bits() - 1) as f64 > 2.0 * self.params.log_bound_open {
                 return false;
             }
 
+            let mut g_commit_check = vec![self.params.ringq.new_ntt_poly(); self.params.mu];
             self.comitter
-                .commit_assign(&op.t[i], &op.tau[i], &mut pc_out);
-            for j in 0..self.params.mu {
-                self.params.ringq.mul_sub_inplace(
-                    &op.ch[i][self.params.m],
-                    &pc.b1_commit[j],
-                    &mut pc_out[j],
-                );
-            }
-            for j in 0..self.params.m {
+                .commit_assign(&op.t[i], &op.tau[i], &mut g_commit_check);
+            for j in 0..self.params.m + 1 {
                 for k in 0..self.params.mu {
                     self.params.ringq.mul_sub_inplace(
                         &op.ch[i][j],
                         &pc.h_commit[j][k],
-                        &mut pc_out[k],
+                        &mut g_commit_check[k],
                     );
                 }
             }
-
-            pc_out.iter().for_each(|p| self.oracle.write_poly(p));
+            g_commit_check
+                .iter()
+                .for_each(|p| self.oracle.write_poly(p));
         }
 
-        let mut m = self.params.ringq.new_ntt_poly();
+        let mut mono_check = self.params.ringq.new_ntt_poly();
         self.oracle.finalize();
-        if op.ch.iter().flatten().any(|p| {
-            self.oracle.read_monomial_assign(&self.params.ringq, &mut m);
-            !m.equal(p)
-        }) {
-            return false;
+        for i in 0..kp {
+            for j in 0..self.params.m + 1 {
+                self.oracle
+                    .read_monomial_assign(&self.params.ringq, &mut mono_check);
+                if !op.ch[i][j].equal(&mono_check) {
+                    return false;
+                }
+            }
         }
 
         return true;

@@ -4,6 +4,8 @@ use crate::ring::*;
 
 use super::UniformSampler;
 
+// TODO: Write Karney Sampler for integer sigma, and fix for f64 sigma.
+
 pub struct KarneySampler {
     pub base_sampler: UniformSampler,
 
@@ -104,9 +106,16 @@ impl KarneySampler {
     pub fn sample_poly_assign(&mut self, ring: &Ring, c: f64, sigma: f64, pout: &mut Poly) {
         pout.is_ntt = false;
 
-        for i in 0..pout.coeffs.len() {
-            for j in 0..pout.coeffs[i].len() {
-                pout.coeffs[i][j] = self.sample_u64_mod(c, sigma, ring.moduli[i]);
+        for i in 0..ring.degree {
+            let c = self.sample_i64(c, sigma);
+            if c < 0 {
+                for j in 0..ring.moduli.len() {
+                    pout.coeffs[j][i] = (c + (ring.moduli[j] as i64)) as u64;
+                }
+            } else {
+                for j in 0..ring.moduli.len() {
+                    pout.coeffs[j][i] = c as u64;
+                }
             }
         }
 

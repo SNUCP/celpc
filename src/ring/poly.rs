@@ -34,4 +34,16 @@ impl Poly {
 
         return true;
     }
+
+    /// is_zero checks if the polynomial is zero.
+    pub fn is_zero(&self) -> bool {
+        for i in 0..self.coeffs.len() {
+            for j in 0..self.coeffs[i].len() {
+                if self.coeffs[i][j] != 0 {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 }

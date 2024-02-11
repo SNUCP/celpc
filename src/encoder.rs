@@ -37,10 +37,16 @@ impl<'a> Encoder<'a> {
         for (i, a) in v.iter().enumerate() {
             let mut amod = a % self.params.p;
             for j in 0..self.params.kap - 1 {
-                pout.coeffs[0][i + j * params.s] = (amod % b256).as_u64();
+                let ac = (amod % b256).as_u64();
+                for k in 0..params.q.len() {
+                    pout.coeffs[k][i + j * params.s] = ac;
+                }
                 amod /= b256;
             }
-            pout.coeffs[0][i + params.s * (params.kap - 1)] = amod.as_u64();
+            let ac = amod.as_u64();
+            for k in 0..params.q.len() {
+                pout.coeffs[k][i + params.s * (params.kap - 1)] = ac;
+            }
         }
 
         pout.is_ntt = false;
@@ -84,8 +90,8 @@ impl<'a> Encoder<'a> {
         let params = self.params;
         pout.clear();
 
-        let mut buff0 = vec![0.0; params.n];
-        let mut buff1 = vec![0.0; params.n];
+        let mut buff0 = vec![0.0; params.d];
+        let mut buff1 = vec![0.0; params.d];
 
         // Encode v to float
         let bf64 = self.params.b as f64;
@@ -99,33 +105,37 @@ impl<'a> Encoder<'a> {
             buff0[i + params.s * (params.kap - 1)] = amod.as_f64();
         }
 
-        // Multiply P^-1 = -1/(b^n/m + 1) (X^(n-m) + b*X^(n-2m) + b^2 X^(n-3m) + ... + b^(n/m-1))
+        // Multiply P^-1 = -1/(b^d/s + 1) (X^(d-s) + b*X^(d-2s) + b^2 X^(d-3s) + ... + b^(d/s-1))
         let mut pinv = -1.0 / (params.p.as_f64());
         for i in 1..=params.kap {
-            self.monomial_mul_and_add_assign(&buff0, pinv, params.n - i * params.s, &mut buff1);
+            self.monomial_mul_and_add_assign(&buff0, pinv, params.d - i * params.s, &mut buff1);
             pinv *= bf64;
         }
 
         // Sample a* from coset P^-1 * a.
-        for i in 0..params.n {
+        for i in 0..params.d {
             buff1[i] = self.sampler.sample_coset(buff1[i], sigma);
         }
 
-        // Compute (X^m - b) * a*.
-        for i in 0..params.n - params.s {
+        // Compute (X^s - b) * a*.
+        for i in 0..params.d - params.s {
             buff0[i + params.s] = buff1[i] - bf64 * buff1[i + params.s];
         }
-        for i in params.n - params.s..params.n {
-            buff0[i + params.s - params.n] = -buff1[i] - bf64 * buff1[i + params.s - params.n];
+        for i in params.d - params.s..params.d {
+            buff0[i + params.s - params.d] = -buff1[i] - bf64 * buff1[i + params.s - params.d];
         }
 
         // Finally, put result into pOut.
         for i in 0..buff0.len() {
             let c = buff0[i].round() as i64;
             if c < 0 {
-                pout.coeffs[0][i] = (c + (params.q as i64)) as u64;
+                for j in 0..params.q.len() {
+                    pout.coeffs[j][i] = (c + (params.q[j] as i64)) as u64;
+                }
             } else {
-                pout.coeffs[0][i] = c as u64;
+                for j in 0..params.q.len() {
+                    pout.coeffs[j][i] = c as u64;
+                }
             }
         }
 
@@ -154,16 +164,20 @@ impl<'a> Encoder<'a> {
     /// Decodes a polynomial into a vector of U256.
     /// vout must be of length s.
     pub fn decode_assign(&self, p: &Poly, vout: &mut [U256]) {
+        if p.is_ntt {
+            panic!("p must be in normal domain");
+        }
+
         let params = &self.params;
 
-        let p_balanced = self.params.ringq.to_balanced(p);
+        // TODO: Optimize this by avoiding rug::Integer.
         let mut tmp = Integer::from(0);
         for i in 0..params.s {
             vout[i] = U256::ZERO;
             tmp.assign(Integer::ZERO);
             for j in (0..params.kap).rev() {
                 tmp *= params.b;
-                tmp += Integer::from(p_balanced[0][i + j * params.s]);
+                tmp += self.params.ringq.get_coeff_balanced(p, i + j * params.s);
             }
             tmp.rem_euc_assign(&params.pbig);
             for (k, &v) in tmp.to_digits::<u128>(Order::LsfLe).iter().enumerate() {
@@ -184,29 +198,31 @@ impl<'a> Encoder<'a> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::csprng::*;
-//     use crate::*;
-//     use ethnum::U256;
+#[cfg(test)]
+mod tests {
+    use crate::csprng::*;
+    use crate::*;
+    use ethnum::U256;
 
-//     #[test]
-//     pub fn test_encoder() {
-//         let params = Parameters::bit_20();
-//         let mut ecd = Encoder::new(&params);
+    #[test]
+    pub fn test_encoder() {
+        let params = Parameters::N_19();
+        let mut ecd = Encoder::new(&params);
 
-//         let mut us = UniformSampler::new();
+        let mut us = UniformSampler::new();
 
-//         let mut msg = vec![U256::ZERO; params.s];
-//         for j in 0..params.s {
-//             msg[j] = us.sample_u256() % params.p;
-//         }
-//         let m = ecd.encode(&msg);
-//         let mout = ecd.decode(&m);
-//         assert_eq!(msg, mout);
+        let mut msg = vec![U256::ZERO; params.s];
+        for j in 0..params.s {
+            msg[j] = us.sample_range_u256(params.p);
+        }
+        let mut m = ecd.encode(&msg);
+        params.ringq.intt(&mut m);
+        let mout = ecd.decode(&m);
+        assert_eq!(msg, mout);
 
-//         let mr = ecd.encode_randomized(&msg, params.s1);
-//         let mout = ecd.decode(&mr);
-//         assert_eq!(msg, mout);
-//     }
-// }
+        let mut mr = ecd.encode_randomized(&msg, params.s1);
+        params.ringq.intt(&mut mr);
+        let mout = ecd.decode(&mr);
+        assert_eq!(msg, mout);
+    }
+}

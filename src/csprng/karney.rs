@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::{f64::consts::*, num};
 
 use crate::ring::*;
 
@@ -6,6 +6,7 @@ use super::UniformSampler;
 
 // Helpers from https://eprint.iacr.org/2019/068
 
+/// returns a+b <= c.
 #[inline]
 fn is_a_plus_b_leq_c(a: f64, b: f64, c: f64) -> bool {
     if a > c || b > c {
@@ -20,6 +21,7 @@ fn is_a_plus_b_leq_c(a: f64, b: f64, c: f64) -> bool {
     return true;
 }
 
+/// computes a+b >= c.
 #[inline]
 fn is_a_plus_b_geq_c(a: f64, b: f64, c: f64) -> bool {
     if a < c || b < c {
@@ -34,11 +36,37 @@ fn is_a_plus_b_geq_c(a: f64, b: f64, c: f64) -> bool {
     return true;
 }
 
+/// returns floor(ta) and (ta) % 1.
+#[inline]
+pub fn mul_floor_fract(t: i64, a: f64) -> (i64, f64) {
+    let s = t.signum();
+    let mut tu = t.abs() as u64;
+
+    let af = a.fract();
+    let mut ta = 0.0;
+    let mut taf = 0.0;
+    let mut i = 0;
+    while tu > 0 {
+        if tu & 1 == 1 {
+            ta += float_extras::f64::ldexp(a, i);
+            taf += float_extras::f64::ldexp(af, i);
+        }
+        tu >>= 1;
+        i += 1;
+    }
+    if s < 0 {
+        ta = -ta;
+        taf = -taf;
+    }
+
+    let x0 = t * (a.floor() as i64) + taf.floor() as i64;
+    let x1 = ta.fract();
+    return (x0, x1);
+}
+
 #[inline]
 fn compute_i(sig: f64, c: f64, t: i64, s: i64) -> i64 {
-    let tsig = t as f64 * sig;
-    let mut i = tsig.floor() as i64;
-    let b = tsig.fract();
+    let (mut i, b) = mul_floor_fract(t, sig);
     if s < 0 && b > c {
         i += 1;
     }
@@ -54,7 +82,7 @@ fn compute_i(sig: f64, c: f64, t: i64, s: i64) -> i64 {
 
 #[inline]
 fn is_x_bar_zero(sig: f64, c: f64, t: i64, s: i64) -> bool {
-    let b = ((t as f64) * sig).fract();
+    let (_, b) = mul_floor_fract(t, sig);
     if s > 0 {
         if (b == 0.0 && c == 0.0) || (b + c == 1.0) {
             return true;
@@ -72,7 +100,7 @@ fn check_reject_a(sig: f64, c: f64, t: i64, s: i64, j: i64) -> bool {
         return false;
     }
 
-    let b = ((t as f64) * sig).fract();
+    let (_, b) = mul_floor_fract(t, sig);
     let a = sig.fract();
     let z = a + b;
     if s > 0 {
@@ -105,7 +133,7 @@ fn compute_x(sig: f64, c: f64, t: i64, s: i64, j: i64) -> f64 {
         return (j as f64) / sig;
     }
 
-    let b = ((t as f64) * sig).fract();
+    let (_, b) = mul_floor_fract(t, sig);
     let mut xbar = 1.0 - (b + (s as f64) * c);
     if s < 0 && b < c {
         xbar -= 1.0;

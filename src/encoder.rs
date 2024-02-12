@@ -168,18 +168,19 @@ impl<'a> Encoder<'a> {
             panic!("p must be in normal domain");
         }
 
-        let params = &self.params;
-
-        // TODO: Optimize this by avoiding rug::Integer.
         let mut tmp = Integer::from(0);
-        for i in 0..params.s {
+        for i in 0..self.params.s {
             vout[i] = U256::ZERO;
             tmp.assign(Integer::ZERO);
-            for j in (0..params.kap).rev() {
-                tmp *= params.b;
-                tmp += self.params.ringq.get_coeff_balanced(p, i + j * params.s);
+            for j in (0..self.params.kap).rev() {
+                tmp *= self.params.b;
+                tmp += self
+                    .params
+                    .ringq
+                    .get_coeff_balanced(p, i + j * self.params.s)
+                    .as_i128();
             }
-            tmp.rem_euc_assign(&params.pbig);
+            tmp.rem_euc_assign(&self.params.pbig);
             for (k, &v) in tmp.to_digits::<u128>(Order::LsfLe).iter().enumerate() {
                 vout[i].0[k] = v;
             }
@@ -220,7 +221,7 @@ mod tests {
         let mout = ecd.decode(&m);
         assert_eq!(msg, mout);
 
-        let mut mr = ecd.encode_randomized(&msg, params.s1);
+        let mut mr = ecd.encode_randomized(&msg, params.s3);
         params.ringq.intt(&mut mr);
         let mout = ecd.decode(&mr);
         assert_eq!(msg, mout);

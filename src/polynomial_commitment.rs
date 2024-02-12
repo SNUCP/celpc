@@ -3,7 +3,6 @@ use super::ring::*;
 use super::*;
 use ethnum::U256;
 use primitive_types::U512;
-use rug::Integer;
 
 pub struct PolynomialCommitment {
     pub h: Vec<Vec<Poly>>,
@@ -273,9 +272,9 @@ impl<'a> PolynomialVerifier<'a> {
         let ev_norm2 = e_intt
             .iter()
             .chain(eps_intt.iter())
-            .fold(Integer::ZERO, |acc, p| acc + self.params.ringq.norm(p));
+            .fold(U256::ZERO, |acc, p| acc + self.params.ringq.norm(p));
 
-        if (ev_norm2.significant_bits() - 1) as f64 > 2.0 * self.params.log_bound_eval {
+        if U256log2(ev_norm2) > 2.0 * self.params.log_bound_eval {
             return false;
         }
 
@@ -338,9 +337,9 @@ impl<'a> PolynomialVerifier<'a> {
             let op_norm2 = op.t[i]
                 .iter()
                 .chain(op.tau[i].iter())
-                .fold(Integer::ZERO, |acc, p| acc + self.params.ringq.norm(p));
+                .fold(U256::ZERO, |acc, p| acc + self.params.ringq.norm(p));
 
-            if (op_norm2.significant_bits() - 1) as f64 > 2.0 * self.params.log_bound_open {
+            if U256log2(op_norm2) > 2.0 * self.params.log_bound_open {
                 return false;
             }
 

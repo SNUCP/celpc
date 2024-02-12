@@ -1,7 +1,7 @@
 use super::*;
 use concrete_ntt::prime64::Plan;
-use ethnum::U256;
-use rug::ops::*;
+use ethnum::{I256, U256};
+use rug::integer::Order;
 use rug::Integer;
 
 #[derive(Clone)]
@@ -9,14 +9,15 @@ pub struct Ring {
     pub degree: usize,
 
     pub moduli: Vec<u64>,
-    pub moduli_big: Integer,
-    pub gadget: Vec<Integer>,
+    pub moduli_big: U256,
+    pub gadget: Vec<U256>,
 
     pub plans: Vec<Plan>,
 }
 
 impl Ring {
     /// Create a new ring with the given degree and moduli.
+    /// moduli should be less than 128 bits.
     pub fn new(degree: usize, moduli: &[u64]) -> Ring {
         let mut plans = Vec::with_capacity(moduli.len());
         for &q in moduli {
@@ -24,22 +25,30 @@ impl Ring {
             plans.push(plan);
         }
 
-        let mut gadget = vec![Integer::from(0); degree];
+        let mut gadget = vec![Integer::from(0); moduli.len()];
         let qfull = moduli.iter().fold(Integer::from(1), |acc, x| acc * x);
         for (i, &q) in moduli.iter().enumerate() {
             let qbig = Integer::from(q);
-
             let qstar = qfull.clone().div_exact(&qbig);
             let qinv = qstar.clone().invert(&qbig).unwrap();
             gadget[i] = qstar * qinv;
         }
 
+        let mut gadget256 = vec![U256::ZERO; moduli.len()];
+        for (i, g) in gadget.iter().enumerate() {
+            for (j, v) in g.to_digits::<u128>(Order::LsfLe).iter().enumerate() {
+                gadget256[i].0[j] = *v;
+            }
+        }
+        let qfull256 = moduli.iter().fold(U256::ONE, |acc, &x| acc * U256::from(x));
+
         return Ring {
             degree: degree,
 
             moduli: moduli.to_vec(),
-            moduli_big: qfull,
-            gadget: gadget,
+            moduli_big: qfull256,
+
+            gadget: gadget256,
 
             plans: plans,
         };
@@ -99,24 +108,24 @@ impl Ring {
         }
     }
 
-    /// Gets the coefficient of the polynomial at the given index as Integer.
-    pub fn get_coeff(&self, p: &Poly, idx: usize) -> Integer {
-        let mut coeff = Integer::from(0);
+    /// Gets the coefficient of the polynomial at the given index as U256.
+    pub fn get_coeff(&self, p: &Poly, idx: usize) -> U256 {
+        let mut coeff = U256::ZERO;
         for i in 0..self.moduli.len() {
-            coeff += Integer::from(p.coeffs[i][idx]) * &self.gadget[i];
+            coeff += U256::from(p.coeffs[i][idx]) * self.gadget[i];
         }
-        coeff.rem_euc_assign(&self.moduli_big);
+        coeff %= self.moduli_big;
         return coeff;
     }
 
-    /// Gets the balanced coefficient of the polynomial at the given index as Integer.
-    pub fn get_coeff_balanced(&self, p: &Poly, idx: usize) -> Integer {
+    /// Gets the balanced coefficient of the polynomial at the given index as I256.
+    pub fn get_coeff_balanced(&self, p: &Poly, idx: usize) -> I256 {
         let coeff = self.get_coeff(p, idx);
         let qhalf = self.moduli_big.clone() >> 1;
         if coeff >= qhalf {
-            coeff - &self.moduli_big
+            coeff.as_i256() - self.moduli_big.as_i256()
         } else {
-            coeff
+            coeff.as_i256()
         }
     }
 
@@ -305,17 +314,17 @@ impl Ring {
     }
 
     /// Returns the square of L2 norm of the given polynomial.
-    pub fn norm(&self, p: &Poly) -> Integer {
+    pub fn norm(&self, p: &Poly) -> U256 {
         let mut buffer = p.clone();
         if p.is_ntt {
             self.intt(&mut buffer);
         }
 
-        let mut l2 = Integer::ZERO;
+        let mut l2 = U256::ZERO;
 
         for i in 0..self.degree {
             let c = self.get_coeff_balanced(&buffer, i);
-            l2 += c.square();
+            l2 += (c * c).as_u256();
         }
         return l2;
     }

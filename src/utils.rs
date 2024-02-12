@@ -38,3 +38,8 @@ pub fn inner_product(x: &[U256], y: &[U256], q: U512) -> U256 {
     }
     return mod_down(res);
 }
+
+#[inline]
+pub fn U256log2(a: U256) -> f64 {
+    return (255 - a.leading_zeros()) as f64;
+}

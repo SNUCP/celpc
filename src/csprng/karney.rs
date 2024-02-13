@@ -1,4 +1,4 @@
-use std::{f64::consts::*, num};
+use std::f64::consts::*;
 
 use crate::ring::*;
 
@@ -38,7 +38,7 @@ fn is_a_plus_b_geq_c(a: f64, b: f64, c: f64) -> bool {
 
 /// returns floor(ta) and (ta) % 1.
 #[inline]
-pub fn mul_floor_fract(t: i64, a: f64) -> (i64, f64) {
+fn mul_floor_fract(t: i64, a: f64) -> (i64, f64) {
     let s = t.signum();
     let mut tu = t.abs() as u64;
 

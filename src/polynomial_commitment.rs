@@ -30,7 +30,7 @@ pub struct PolynomialProver<'a> {
 
     pub key: &'a CommitKey,
 
-    pub comitter: Comitter<'a>,
+    pub committer: Committer<'a>,
 }
 
 impl<'a> PolynomialProver<'a> {
@@ -45,11 +45,10 @@ impl<'a> PolynomialProver<'a> {
 
             key: key,
 
-            comitter: Comitter::new(params, key),
+            committer: Committer::new(params, key),
         }
     }
 
-    /// Commit creates a polynomial commitment.
     pub fn commit(&mut self, h_raw: &[U256]) -> PolynomialCommitment {
         assert_eq!(h_raw.len(), self.params.m * self.params.n);
 
@@ -95,7 +94,7 @@ impl<'a> PolynomialProver<'a> {
         let mut h_commit =
             vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; self.params.m + 2];
         for i in 0..self.params.m + 2 {
-            self.comitter
+            self.committer
                 .commit_assign(&h[i], &eta[i], &mut h_commit[i]);
         }
 
@@ -106,7 +105,39 @@ impl<'a> PolynomialProver<'a> {
         };
     }
 
-    /// Generates an evaluation proof using Polynomial Commitment.
+    pub fn commit_nozk(&mut self, h_raw: &[U256]) -> PolynomialCommitment {
+        assert_eq!(h_raw.len(), self.params.m * self.params.n);
+
+        let mut b0 = vec![U256::ZERO; self.params.n];
+        let mut b1 = vec![U256::ZERO; self.params.n];
+        for i in 0..self.params.n - 1 {
+            b0[i] = self.uniform_sampler.sample_range_u256(self.params.p);
+            b1[i + 1] = self.params.p - b0[i];
+        }
+
+        let mut h = vec![vec![self.params.ringq.new_poly(); self.params.l]; self.params.m + 2];
+        for (i, h_raw_chunk) in h_raw.chunks_exact(self.params.n).enumerate() {
+            self.encoder.encode_chunk_assign(h_raw_chunk, &mut h[i]);
+        }
+        self.encoder.encode_chunk_assign(&b0, &mut h[self.params.m]);
+        self.encoder
+            .encode_chunk_assign(&b1, &mut h[self.params.m + 1]);
+
+        let eta = vec![vec![self.params.ringq.new_poly(); self.params.munu]; self.params.m + 2];
+
+        let mut h_commit =
+            vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; self.params.m + 2];
+        for i in 0..self.params.m + 2 {
+            self.committer.commit_nozk_assign(&h[i], &mut h_commit[i]);
+        }
+
+        return PolynomialCommitment {
+            h: h,
+            eta: eta,
+            h_commit: h_commit,
+        };
+    }
+
     pub fn evaluate(&mut self, x_raw: U256, pc: &PolynomialCommitment) -> (U256, EvaluationProof) {
         let x = self.encoder.encode(&[x_raw]);
 
@@ -168,7 +199,7 @@ impl<'a> PolynomialProver<'a> {
     }
 
     pub fn prove(&mut self, pc: &PolynomialCommitment) -> OpenProof {
-        let kp = ((LAMBDA as f64) / (2.0 * (self.params.d.ilog2() as f64))).ceil() as usize;
+        let kp = ((LAMBDA as f64) / (1.0 + (self.params.d.ilog2() as f64))).ceil() as usize;
 
         let s2_m = ((self.params.m + 2) as f64).sqrt() * self.params.s2;
         let sig2_m = ((self.params.m + 2) as f64).sqrt() * self.params.sig2;
@@ -185,7 +216,7 @@ impl<'a> PolynomialProver<'a> {
                 self.gaussian_sampler
                     .sample_poly_exact_assign(&self.params.ringq, 0, sig2_m, p);
             });
-            self.comitter
+            self.committer
                 .commit_assign(&g[i], &gamma[i], &mut g_commit[i]);
             g_commit[i].iter().for_each(|p| self.oracle.write_poly(p));
         }
@@ -224,6 +255,45 @@ impl<'a> PolynomialProver<'a> {
             tau: tau,
         };
     }
+
+    pub fn prove_nozk(&mut self, pc: &PolynomialCommitment) -> OpenProof {
+        let kp = ((LAMBDA as f64) / (1.0 + (self.params.d.ilog2() as f64))).ceil() as usize;
+
+        let mut g_raw = vec![vec![U256::ZERO; self.params.n]; kp];
+        let mut g = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; kp];
+        let mut g_commit = vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; kp];
+        for i in 0..kp {
+            g_raw[i].fill_with(|| self.uniform_sampler.sample_range_u256(self.params.p));
+            self.encoder.encode_chunk_assign(&g_raw[i], &mut g[i]);
+            self.committer.commit_nozk_assign(&g[i], &mut g_commit[i]);
+            g_commit[i].iter().for_each(|p| self.oracle.write_poly(p));
+        }
+
+        self.oracle.finalize();
+        let mut ch = vec![vec![self.params.ringq.new_ntt_poly(); self.params.m + 1]; kp];
+        ch.iter_mut()
+            .flatten()
+            .for_each(|p| self.oracle.read_monomial_assign(&self.params.ringq, p));
+
+        let mut t = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; kp];
+        let tau = vec![vec![self.params.ringq.new_ntt_poly(); self.params.munu]; kp];
+        for i in 0..kp {
+            t[i].clone_from(&g[i]);
+            for j in 0..self.params.m + 1 {
+                for k in 0..self.params.l {
+                    self.params
+                        .ringq
+                        .mul_add_inplace(&ch[i][j], &pc.h[j][k], &mut t[i][k]);
+                }
+            }
+        }
+
+        return OpenProof {
+            ch: ch,
+            t: t,
+            tau: tau,
+        };
+    }
 }
 
 pub struct PolynomialVerifier<'a> {
@@ -235,7 +305,7 @@ pub struct PolynomialVerifier<'a> {
 
     pub key: &'a CommitKey,
 
-    pub comitter: Comitter<'a>,
+    pub committer: Committer<'a>,
 }
 
 impl<'a> PolynomialVerifier<'a> {
@@ -249,7 +319,7 @@ impl<'a> PolynomialVerifier<'a> {
 
             key: key,
 
-            comitter: Comitter::new(params, key),
+            committer: Committer::new(params, key),
         }
     }
 
@@ -303,7 +373,7 @@ impl<'a> PolynomialVerifier<'a> {
             return false;
         }
 
-        let mut commit_check = self.comitter.commit(&ep.e, &ep.eps);
+        let mut commit_check = self.committer.commit(&ep.e, &ep.eps);
         for i in 0..self.params.mu {
             self.params
                 .ringq
@@ -331,7 +401,7 @@ impl<'a> PolynomialVerifier<'a> {
     }
 
     pub fn verify(&mut self, pc: &PolynomialCommitment, op: &OpenProof) -> bool {
-        let kp = ((LAMBDA as f64) / (2.0 * (self.params.d.ilog2() as f64))).ceil() as usize;
+        let kp = ((LAMBDA as f64) / (1.0 + (self.params.d.ilog2() as f64))).ceil() as usize;
 
         for i in 0..kp {
             let op_norm2 = op.t[i]
@@ -344,7 +414,7 @@ impl<'a> PolynomialVerifier<'a> {
             }
 
             let mut g_commit_check = vec![self.params.ringq.new_ntt_poly(); self.params.mu];
-            self.comitter
+            self.committer
                 .commit_assign(&op.t[i], &op.tau[i], &mut g_commit_check);
             for j in 0..self.params.m + 1 {
                 for k in 0..self.params.mu {

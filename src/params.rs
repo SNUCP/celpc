@@ -153,4 +153,70 @@ impl Parameters {
             74.7,                                       //log_bound_pc: f64,
         )
     }
+
+    pub fn N_21() -> Parameters {
+        Parameters::new(
+            1,                                          //mu: usize,
+            1,                                          //nu: usize,
+            1 << 11,                                    //d: usize,
+            vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
+            63388,                                      //b: u64,
+            (1 << 11) / 16,                             //s: usize,
+            64,                                         //l: usize,
+            256,                                        //m: usize,
+            10.0,                                       //s1: f64,
+            34.0,                                       //s2: f64,
+            5202283.0,                                  //s3: f64,
+            20.0,                                       //sig1: f64,
+            68.0,                                       //sig2: f64,
+            10404567.0,                                 //sig3: f64,
+            36.8,                                       //log_bound_open: f64,
+            55.7,                                       //log_bound_eval: f64,
+            81.3,                                       //log_bound_pc: f64,
+        )
+    }
+
+    pub fn N_23() -> Parameters {
+        Parameters::new(
+            1,                                          //mu: usize,
+            1,                                          //nu: usize,
+            1 << 11,                                    //d: usize,
+            vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
+            63388,                                      //b: u64,
+            (1 << 11) / 16,                             //s: usize,
+            128,                                        //l: usize,
+            512,                                        //m: usize,
+            10.0,                                       //s1: f64,
+            34.0,                                       //s2: f64,
+            5202283.0,                                  //s3: f64,
+            20.0,                                       //sig1: f64,
+            68.0,                                       //sig2: f64,
+            10404567.0,                                 //sig3: f64,
+            38.0,                                       //log_bound_open: f64,
+            56.9,                                       //log_bound_eval: f64,
+            79.0,                                       //log_bound_pc: f64,
+        )
+    }
+
+    pub fn N_25() -> Parameters {
+        Parameters::new(
+            1,                                          //mu: usize,
+            1,                                          //nu: usize,
+            1 << 11,                                    //d: usize,
+            vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
+            63388,                                      //b: u64,
+            (1 << 11) / 16,                             //s: usize,
+            256,                                        //l: usize,
+            1024,                                       //m: usize,
+            10.0,                                       //s1: f64,
+            34.0,                                       //s2: f64,
+            5202283.0,                                  //s3: f64,
+            20.0,                                       //sig1: f64,
+            68.0,                                       //sig2: f64,
+            10404567.0,                                 //sig3: f64,
+            39.2,                                       //log_bound_open: f64,
+            58.1,                                       //log_bound_eval: f64,
+            81.2,                                       //log_bound_pc: f64,
+        )
+    }
 }

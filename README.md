@@ -1,18 +1,20 @@
-# ELSA: Efficient Lattice-based Sublinear Arguments for R1CS without Aborts
+# Concretely Efficient Lattice-based Polynomial Commitment
 
-Rust Code for [HSS23] "Efficient Lattice-based Sublinear Arguments for R1CS without Aborts".
+Rust Code for [HSS24] "Concretely Efficient Lattice-based Polynomial Commitment".
 
-You need to install nightly toolchain of rustc to run the code.
+You need to install nightly toolchain of rustc to run the code. Currently works only in Rust Nightly 1.77.
 ```
 $ RUSTFLAGS="-C target-cpu=native" cargo run --release
-keygen time: 3.915143ms
-commit time: 218.024µs
-open time: 1.963427ms
-commit ok? true
-ajtai prove time: 1.498060698s
-ajtai verify time: 114.837694ms
-ajtai verify ok? true
-r1cs prove time: 33.257246645s
-r1cs verify time: 1.030204535s
-r1cs verify ok? true
+Current Parameters: N = 2^19 with p = 63388^16 + 1.
+commit: 4.187749949s
+commit (no zk): 507.360968ms
+evaluate: 37.907132ms
+evaluate result: 524288 ?= 524288
+eval_verify: 17.685859ms
+eval_verify result: true
+open: 738.555925ms
+open (no zk): 420.328664ms
+open_verify: 122.901533ms
+open_verify result: true
+...
 ```

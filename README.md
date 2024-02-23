@@ -1,4 +1,4 @@
-# ELSA-PC: Concretely Efficient Lattice-based Polynomial Commitment
+# CELPC: Concretely Efficient Lattice-based Polynomial Commitment
 
 Rust Code for [HSS24] "Concretely Efficient Lattice-based Polynomial Commitment".
 

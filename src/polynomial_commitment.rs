@@ -205,22 +205,15 @@ impl<'a> PolynomialProver<'a> {
     pub fn prove(&mut self, pc: &PolynomialCommitment) -> OpenProof {
         let kp = ((LAMBDA as f64) / (1.0 + (self.params.d.ilog2() as f64))).ceil() as usize;
 
-        // let s2_m = ((self.params.m + 2) as f64).sqrt() * self.params.s2;
-        // let sig2_m = ((self.params.m + 2) as f64).sqrt() * self.params.sig2;
-
         let mut g_raw = vec![vec![U256::ZERO; self.params.n]; kp];
-        let mut g = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; kp];
-        let mut gamma = vec![vec![self.params.ringq.new_ntt_poly(); self.params.munu]; kp];
-        let mut g_commit = vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; kp];
+        let mut g = vec![vec![self.params.ringq.new_poly(); self.params.l]; kp];
+        let mut gamma = vec![vec![self.params.ringq.new_poly(); self.params.munu]; kp];
+        let mut g_commit = vec![vec![self.params.ringq.new_poly(); self.params.mu]; kp];
         for i in 0..kp {
             g_raw[i].fill_with(|| self.uniform_sampler.sample_range_u256(self.params.p));
-            // self.encoder
-            //     .encode_randomized_chunk_assign(&g_raw[i], s2_m, &mut g[i]);
             self.s2_encoder
                 .encode_randomized_chunk_assign(&g_raw[i], &mut g[i]);
             gamma[i].iter_mut().for_each(|p| {
-                // self.gaussian_sampler
-                //     .sample_poly_exact_assign(&self.params.ringq, 0, sig2_m, p);
                 self.sig2_sampler.sample_poly_assign(&self.params.ringq, p);
             });
             self.committer

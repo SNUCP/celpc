@@ -113,7 +113,7 @@ impl CDTSampler {
 
 /// CDTSamplerVarCenter is a variant of CDTSampler with variable center and fixed sigma.
 /// This is possible by using SampleC algorithm from [MW18].
-/// Currently, base = 32 and precision = 6, which implies statistical distance ~ 2^-60.
+/// Currently, base = 256 and precision = 4, which implies statistical distance ~ 2^-64.
 pub struct CDTSamplerVarCenter {
     pub base_samplers: Vec<CDTSampler>,
 
@@ -124,8 +124,8 @@ pub struct CDTSamplerVarCenter {
 
 impl CDTSamplerVarCenter {
     pub fn new(sigma: f64) -> CDTSamplerVarCenter {
-        let b_log = 5;
-        let k = 6;
+        let b_log = 8;
+        let k = 4;
 
         let mut base_samplers = Vec::new();
         for i in 0..(1 << b_log) {
@@ -152,9 +152,9 @@ impl CDTSamplerVarCenter {
         // Scale 53 bits...
         let cx = (c * f64::exp2(f64_prec_log as f64)) as u64;
 
-        // Extract first 30 bits of precision
+        // Extract first bits of precision
         let cmsb = cx >> tail_prec_log;
-        // And the last 22 bits.
+        // And the last bits.
         let clsb = cx & ((1 << tail_prec_log) - 1);
 
         let mut x = self.sampleC(cmsb);

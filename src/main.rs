@@ -7,9 +7,9 @@ use polycom::{CommitKey, Parameters, PolynomialProver, PolynomialVerifier};
 
 fn main() {
     with_params(Parameters::N_19());
-    with_params(Parameters::N_21());
-    with_params(Parameters::N_23());
-    with_params(Parameters::N_25());
+    // with_params(Parameters::N_21());
+    // with_params(Parameters::N_23());
+    // with_params(Parameters::N_25());
 }
 
 fn with_params(pp: Parameters) {
@@ -20,9 +20,11 @@ fn with_params(pp: Parameters) {
         pp.kap
     );
 
+    let now = Instant::now();
     let ck = CommitKey::new(&pp, &[0, 0, 0, 0]);
     let mut prover = PolynomialProver::new(&pp, &ck);
     let mut verifier = PolynomialVerifier::new(&pp, &ck);
+    println!("setup: {:?}", now.elapsed());
 
     let p = vec![U256::ONE; pp.N];
     let x = U256::ONE;

@@ -242,12 +242,6 @@ impl KarneySampler {
         }
     }
 
-    /// Samples a random u64 mod q.
-    pub fn sample_u64_mod(&mut self, c: f64, sigma: f64, q: u64) -> u64 {
-        let x = self.sample_i64(c, sigma);
-        x.rem_euclid(q as i64) as u64
-    }
-
     /// Samples a random number from coset c + Z.
     pub fn sample_coset(&mut self, c: f64, sigma: f64) -> f64 {
         return self.sample_i64(-c, sigma) as f64 + c;

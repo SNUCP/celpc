@@ -26,6 +26,15 @@ pub struct PolynomialProver<'a> {
     pub encoder: Encoder<'a>,
     pub uniform_sampler: UniformSampler,
     pub gaussian_sampler: KarneySampler,
+
+    pub s1_encoder: EncoderRandSmall<'a>,
+    pub s2_encoder: EncoderRandSmall<'a>,
+    pub s3_encoder: EncoderRandLarge<'a>,
+
+    pub sig1_sampler: CDTSampler,
+    pub sig2_sampler: CDTSampler,
+    pub sig3_sampler: ConvolveSampler,
+
     pub oracle: Oracle,
 
     pub key: &'a CommitKey,
@@ -42,6 +51,14 @@ impl<'a> PolynomialProver<'a> {
             uniform_sampler: UniformSampler::new(),
             gaussian_sampler: KarneySampler::new(),
             oracle: Oracle::new(),
+
+            s1_encoder: EncoderRandSmall::new(params, params.s1),
+            s2_encoder: EncoderRandSmall::new(params, ((params.m + 2) as f64).sqrt() * params.s2),
+            s3_encoder: EncoderRandLarge::new(params, ((params.m + 2) as f64).sqrt() * params.s3),
+
+            sig1_sampler: CDTSampler::new(0.0, params.sig1),
+            sig2_sampler: CDTSampler::new(0.0, ((params.m + 2) as f64).sqrt() * params.sig2),
+            sig3_sampler: ConvolveSampler::new(((params.m + 2) as f64).sqrt() * params.sig3),
 
             key: key,
 
@@ -61,35 +78,24 @@ impl<'a> PolynomialProver<'a> {
 
         let mut h = vec![vec![self.params.ringq.new_poly(); self.params.l]; self.params.m + 2];
         for (i, h_raw_chunk) in h_raw.chunks_exact(self.params.n).enumerate() {
-            self.encoder
-                .encode_randomized_chunk_assign(h_raw_chunk, self.params.s1, &mut h[i]);
+            self.s1_encoder
+                .encode_randomized_chunk_assign(h_raw_chunk, &mut h[i]);
         }
-        self.encoder
-            .encode_randomized_chunk_assign(&b0, self.params.s1, &mut h[self.params.m]);
-        self.encoder.encode_randomized_chunk_assign(
-            &b1,
-            (self.params.m as f64 + 2.0).sqrt() * self.params.s3,
-            &mut h[self.params.m + 1],
-        );
+        self.s1_encoder
+            .encode_randomized_chunk_assign(&b0, &mut h[self.params.m]);
+        self.s3_encoder
+            .encode_randomized_chunk_assign(&b1, &mut h[self.params.m + 1]);
 
         let mut eta = vec![vec![self.params.ringq.new_poly(); self.params.munu]; self.params.m + 2];
         for i in 0..self.params.m + 1 {
             for j in 0..self.params.munu {
-                self.gaussian_sampler.sample_poly_exact_assign(
-                    &self.params.ringq,
-                    0,
-                    self.params.sig1,
-                    &mut eta[i][j],
-                );
+                self.sig1_sampler
+                    .sample_poly_assign(&self.params.ringq, &mut eta[i][j]);
             }
         }
         for j in 0..self.params.munu {
-            self.gaussian_sampler.sample_poly_exact_assign(
-                &self.params.ringq,
-                0,
-                (self.params.m as f64 + 2.0).sqrt() * self.params.sig3,
-                &mut eta[self.params.m + 1][j],
-            );
+            self.sig3_sampler
+                .sample_poly_assign(&self.params.ringq, &mut eta[self.params.m + 1][j]);
         }
         let mut h_commit =
             vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; self.params.m + 2];
@@ -201,8 +207,8 @@ impl<'a> PolynomialProver<'a> {
     pub fn prove(&mut self, pc: &PolynomialCommitment) -> OpenProof {
         let kp = ((LAMBDA as f64) / (1.0 + (self.params.d.ilog2() as f64))).ceil() as usize;
 
-        let s2_m = ((self.params.m + 2) as f64).sqrt() * self.params.s2;
-        let sig2_m = ((self.params.m + 2) as f64).sqrt() * self.params.sig2;
+        // let s2_m = ((self.params.m + 2) as f64).sqrt() * self.params.s2;
+        // let sig2_m = ((self.params.m + 2) as f64).sqrt() * self.params.sig2;
 
         let mut g_raw = vec![vec![U256::ZERO; self.params.n]; kp];
         let mut g = vec![vec![self.params.ringq.new_ntt_poly(); self.params.l]; kp];
@@ -210,11 +216,14 @@ impl<'a> PolynomialProver<'a> {
         let mut g_commit = vec![vec![self.params.ringq.new_ntt_poly(); self.params.mu]; kp];
         for i in 0..kp {
             g_raw[i].fill_with(|| self.uniform_sampler.sample_range_u256(self.params.p));
-            self.encoder
-                .encode_randomized_chunk_assign(&g_raw[i], s2_m, &mut g[i]);
+            // self.encoder
+            //     .encode_randomized_chunk_assign(&g_raw[i], s2_m, &mut g[i]);
+            self.s2_encoder
+                .encode_randomized_chunk_assign(&g_raw[i], &mut g[i]);
             gamma[i].iter_mut().for_each(|p| {
-                self.gaussian_sampler
-                    .sample_poly_exact_assign(&self.params.ringq, 0, sig2_m, p);
+                // self.gaussian_sampler
+                //     .sample_poly_exact_assign(&self.params.ringq, 0, sig2_m, p);
+                self.sig2_sampler.sample_poly_assign(&self.params.ringq, p);
             });
             self.committer
                 .commit_assign(&g[i], &gamma[i], &mut g_commit[i]);

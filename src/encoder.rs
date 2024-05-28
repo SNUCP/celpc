@@ -21,16 +21,12 @@ fn monomial_mul_and_add_assign(p: &[f64], c: f64, d: usize, pout: &mut [f64]) {
 /// Encoder for deterministic encoding.
 pub struct Encoder<'a> {
     pub params: &'a Parameters,
-    pub sampler: KarneySampler,
 }
 
 impl<'a> Encoder<'a> {
     /// Creates a new encoder.
     pub fn new(params: &'a Parameters) -> Encoder<'a> {
-        Encoder {
-            params: params,
-            sampler: KarneySampler::new(),
-        }
+        Encoder { params: params }
     }
 
     /// Encodes a vector of U256 into a polynomial.

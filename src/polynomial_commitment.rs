@@ -25,7 +25,6 @@ pub struct PolynomialProver<'a> {
     pub params: &'a Parameters,
     pub encoder: Encoder<'a>,
     pub uniform_sampler: UniformSampler,
-    pub gaussian_sampler: KarneySampler,
 
     pub s1_encoder: EncoderRandSmall<'a>,
     pub s2_encoder: EncoderRandSmall<'a>,
@@ -49,7 +48,6 @@ impl<'a> PolynomialProver<'a> {
             params: params,
             encoder: Encoder::new(params),
             uniform_sampler: UniformSampler::new(),
-            gaussian_sampler: KarneySampler::new(),
             oracle: Oracle::new(),
 
             s1_encoder: EncoderRandSmall::new(params, params.s1),
@@ -309,7 +307,6 @@ pub struct PolynomialVerifier<'a> {
     pub params: &'a Parameters,
     pub encoder: Encoder<'a>,
     pub uniform_sampler: UniformSampler,
-    pub gaussian_sampler: KarneySampler,
     pub oracle: Oracle,
 
     pub key: &'a CommitKey,
@@ -323,7 +320,6 @@ impl<'a> PolynomialVerifier<'a> {
             params: params,
             encoder: Encoder::new(params),
             uniform_sampler: UniformSampler::new(),
-            gaussian_sampler: KarneySampler::new(),
             oracle: Oracle::new(),
 
             key: key,

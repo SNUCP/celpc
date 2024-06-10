@@ -83,10 +83,7 @@ impl CDTSampler {
     pub fn sample(&mut self) -> i64 {
         let r = self.base_sampler.sample_u64();
 
-        let x = match self.table.binary_search(&r) {
-            Ok(x) => x,
-            Err(x) => x - 1,
-        };
+        let x = self.table.binary_search(&r).unwrap_or_else(|x| x - 1);
         return x as i64 + self.tailcut_low;
     }
 

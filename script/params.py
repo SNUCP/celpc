@@ -7,8 +7,8 @@ N: 19 21 23 25
 n: 12 13 14 15
 """
 
-N = 2**25
-n = 2**15
+N = 2**19
+n = 2**12
 
 """
 r = 32
@@ -42,6 +42,8 @@ print("sig1: %d sig2: %d sig3: %d" % (sig1, sig2, sig3))
 
 mu = ceil(2048 / d)
 nu = ceil(4096 / d)
+
+print("mu: %d nu: %d" % (mu, nu))
 
 q = 2**112 + 1
 

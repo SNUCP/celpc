@@ -7,9 +7,9 @@ use polycom::{CommitKey, Parameters, PolynomialProver, PolynomialVerifier};
 
 fn main() {
     with_params(Parameters::N_19());
-    // with_params(Parameters::N_21());
-    // with_params(Parameters::N_23());
-    // with_params(Parameters::N_25());
+    with_params(Parameters::N_21());
+    with_params(Parameters::N_23());
+    with_params(Parameters::N_25());
 }
 
 fn with_params(pp: Parameters) {

@@ -135,7 +135,7 @@ impl Parameters {
     pub fn N_19() -> Parameters {
         Parameters::new(
             1,                                          //mu: usize,
-            1,                                          //nu: usize,
+            2,                                          //nu: usize,
             1 << 11,                                    //d: usize,
             vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
             63388,                                      //b: u64,
@@ -157,7 +157,7 @@ impl Parameters {
     pub fn N_21() -> Parameters {
         Parameters::new(
             1,                                          //mu: usize,
-            1,                                          //nu: usize,
+            2,                                          //nu: usize,
             1 << 11,                                    //d: usize,
             vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
             63388,                                      //b: u64,
@@ -179,7 +179,7 @@ impl Parameters {
     pub fn N_23() -> Parameters {
         Parameters::new(
             1,                                          //mu: usize,
-            1,                                          //nu: usize,
+            2,                                          //nu: usize,
             1 << 11,                                    //d: usize,
             vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
             63388,                                      //b: u64,
@@ -201,7 +201,7 @@ impl Parameters {
     pub fn N_25() -> Parameters {
         Parameters::new(
             1,                                          //mu: usize,
-            1,                                          //nu: usize,
+            2,                                          //nu: usize,
             1 << 11,                                    //d: usize,
             vec![72057594037948417, 72057594037641217], //q: Vec<u64>,
             63388,                                      //b: u64,

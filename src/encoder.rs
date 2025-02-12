@@ -122,7 +122,7 @@ impl<'a> Encoder<'a> {
 /// Encoder for randomized encoding with small parameters (s1 and s2).
 pub struct EncoderRandSmall<'a> {
     pub params: &'a Parameters,
-    pub sampler: CDTSamplerVarCenter,
+    pub sampler: TwinCDTSampler,
 
     pub buff0: Vec<f64>,
     pub buff1: Vec<f64>,
@@ -132,7 +132,7 @@ impl<'a> EncoderRandSmall<'a> {
     pub fn new(params: &'a Parameters, sigma: f64) -> EncoderRandSmall<'a> {
         EncoderRandSmall {
             params: params,
-            sampler: CDTSamplerVarCenter::new(sigma),
+            sampler: TwinCDTSampler::new(sigma),
 
             buff0: vec![0.0; params.d],
             buff1: vec![0.0; params.d],

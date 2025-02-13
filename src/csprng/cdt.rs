@@ -3,7 +3,6 @@ use std::f64::consts::PI;
 
 use super::UniformSampler;
 use crate::ring::*;
-use float_extras::f64::erf;
 use rug::{ops::PowAssign, Assign, Float};
 
 const TAIL_CUT: f64 = 6.0;
@@ -183,7 +182,7 @@ impl CDTSamplerVarCenter {
 }
 
 /// TwinCDTSampler is a variant of CDTSampler with variable center and fixed sigma, based on [AR18].
-/// Currently, base = 256.
+/// Currently, base = 128.
 pub struct TwinCDTSampler {
     pub base_sampler: UniformSampler,
 
@@ -231,10 +230,15 @@ impl TwinCDTSampler {
         }
 
         let c_frac = center - c_floor;
-        let v0f = v0 as f64 + self.tailcut_low as f64;
-        // cdf_{c, s}(x) = 0.5 + 0.5 * erf(sqrt(pi) * (x - c) / s))
-        let cdf = 0.5 + 0.5 * erf(f64::consts::PI.sqrt() * (v0f - c_frac) / self.sigma);
-        if u < (cdf * f64::exp2(64.0)) as u64 {
+        let mut cdf = 0.0;
+        for x in self.tailcut_low..=(v0 as i64) {
+            let xf = x as f64;
+            cdf += f64::exp(-PI * (xf - c_frac) * (xf - c_frac) / (self.sigma * self.sigma))
+                / self.sigma;
+        }
+
+        let p = (u as f64) / f64::exp2(64.0);
+        if p < cdf {
             return v0 as i64 + self.tailcut_low + c_floor as i64;
         }
         return v1 as i64 + self.tailcut_low + c_floor as i64;

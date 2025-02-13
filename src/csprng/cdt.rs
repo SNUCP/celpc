@@ -149,7 +149,7 @@ impl CDTSamplerVarCenter {
         // And the last bits.
         let clsb = cx & ((1 << tail_prec_log) - 1);
 
-        let mut x = self.sampleC(cmsb);
+        let mut x = self.sample_c(cmsb);
 
         // Use Bernoulli to sample the rounding.
         let r = self.base_samplers[0].base_sampler.sample_u64() & ((1 << tail_prec_log) - 1);
@@ -161,7 +161,7 @@ impl CDTSamplerVarCenter {
     }
 
     /// Samples from Gaussian distribution with center c / 2^30.
-    fn sampleC(&mut self, c: u64) -> i64 {
+    fn sample_c(&mut self, c: u64) -> i64 {
         let mut x = c as i64;
         let mask = (1 << self.b_log) - 1;
         for _ in 0..self.k {

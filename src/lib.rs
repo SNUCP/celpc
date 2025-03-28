@@ -1,19 +1,21 @@
-#![allow(non_snake_case)]
-
+pub mod ajtai;
 pub mod csprng;
+pub mod parameters;
 pub mod ring;
 
-pub mod params;
-pub use params::*;
-
 pub mod encoder;
-pub use encoder::*;
+pub mod entities;
+pub mod prover;
+pub mod verifier;
 
-pub mod commit;
-pub use commit::*;
+pub mod prelude {
+    pub use crate::ajtai::*;
+    pub use crate::csprng::*;
+    pub use crate::parameters::*;
+    pub use crate::ring::*;
 
-pub mod polynomial_commitment;
-pub use polynomial_commitment::*;
-
-pub mod utils;
-pub use utils::*;
+    pub use crate::encoder::*;
+    pub use crate::entities::*;
+    pub use crate::prover::*;
+    pub use crate::verifier::*;
+}

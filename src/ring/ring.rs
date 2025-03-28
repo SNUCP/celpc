@@ -1,331 +1,241 @@
-use super::*;
-use concrete_ntt::prime64::Plan;
-use ethnum::{I256, U256};
-use rug::integer::Order;
-use rug::Integer;
+use super::Poly;
+use rug::{Complete, Integer};
+use tfhe_ntt::prime64::Plan;
 
+/// Ring is a polynomial ring Z_q[X]/(X^N + 1),
+/// where N is a power of two.
 #[derive(Clone)]
 pub struct Ring {
-    pub degree: usize,
+    degree: usize,
+    modulus: Vec<u64>,
+    plan: Vec<Plan>,
 
-    pub moduli: Vec<u64>,
-    pub moduli_big: U256,
-    pub gadget: Vec<U256>,
-
-    pub plans: Vec<Plan>,
+    modulus_big: Integer,
+    rns_gadget: Vec<Integer>,
 }
 
 impl Ring {
-    /// Create a new ring with the given degree and moduli.
-    /// moduli should be less than 128 bits.
-    pub fn new(degree: usize, moduli: &[u64]) -> Ring {
-        let mut plans = Vec::with_capacity(moduli.len());
-        for &q in moduli {
-            let plan = Plan::try_new(degree, q).unwrap();
-            plans.push(plan);
+    /// Creates a ring.
+    pub fn new(n: usize, q: &[u64]) -> Self {
+        let plan = q.iter().map(|&q| Plan::try_new(n, q).unwrap()).collect();
+
+        let q_full = q.iter().fold(Integer::from(1), |acc, &q| acc * q);
+        let mut rns_gadget = vec![Integer::ZERO; q.len()];
+        for i in 0..q.len() {
+            let qi = Integer::from(q[i]);
+            let q_div = (&q_full / &qi).complete();
+            let q_div_inv = q_div.clone().invert(&qi).unwrap();
+            rns_gadget[i] = q_div * q_div_inv;
         }
 
-        let mut gadget = vec![Integer::from(0); moduli.len()];
-        let qfull = moduli.iter().fold(Integer::from(1), |acc, x| acc * x);
-        for (i, &q) in moduli.iter().enumerate() {
-            let qbig = Integer::from(q);
-            let qstar = qfull.clone().div_exact(&qbig);
-            let qinv = qstar.clone().invert(&qbig).unwrap();
-            gadget[i] = qstar * qinv;
+        Self {
+            degree: n,
+            modulus: q.to_vec(),
+            plan,
+
+            modulus_big: q_full,
+            rns_gadget: rns_gadget,
         }
-
-        let mut gadget256 = vec![U256::ZERO; moduli.len()];
-        for (i, g) in gadget.iter().enumerate() {
-            for (j, v) in g.to_digits::<u128>(Order::LsfLe).iter().enumerate() {
-                gadget256[i].0[j] = *v;
-            }
-        }
-        let qfull256 = moduli.iter().fold(U256::ONE, |acc, &x| acc * U256::from(x));
-
-        return Ring {
-            degree: degree,
-
-            moduli: moduli.to_vec(),
-            moduli_big: qfull256,
-
-            gadget: gadget256,
-
-            plans: plans,
-        };
     }
 
-    /// Create a new polynomial with the given degree and modulus.
-    /// The polynomial is not in NTT form.
+    /// degree returns the degree of the ring.
+    pub fn degree(&self) -> usize {
+        return self.degree;
+    }
+
+    /// level returns the number of moduli in the ring.
+    pub fn level(&self) -> usize {
+        return self.modulus.len();
+    }
+
+    /// modulus returns the modulus of the ring.
+    pub fn modulus(&self) -> Vec<u64> {
+        return self.modulus.clone();
+    }
+
+    /// modulus_idx returns the i-th modulus of the ring.
+    pub fn modulus_idx(&self, i: usize) -> u64 {
+        return self.modulus[i];
+    }
+
+    /// modulus_big returns the modulus of the ring as a big integer.
+    pub fn modulus_big(&self) -> Integer {
+        return self.modulus_big.clone();
+    }
+
+    /// new_poly creates a new polynomial.
     pub fn new_poly(&self) -> Poly {
-        let coeffs = vec![vec![0; self.degree]; self.moduli.len()];
-        Poly {
-            coeffs: coeffs,
-            is_ntt: false,
+        return Poly::new(self.degree, self.modulus.len());
+    }
+
+    /// ntt_inplace computes the ntt of p in-place.
+    pub fn ntt_inplace(&self, p: &mut Poly) {
+        for (i, plan) in self.plan.iter().enumerate() {
+            plan.fwd(&mut p.coeffs[i]);
         }
     }
 
-    /// Create a new polynomial with the given degree and modulus.
-    /// The polynomial is in NTT form.
-    pub fn new_ntt_poly(&self) -> Poly {
-        let coeffs = vec![vec![0; self.degree]; self.moduli.len()];
-        Poly {
-            coeffs: coeffs,
-            is_ntt: true,
+    /// intt_inplace computes the intt of p in-place.
+    pub fn intt_inplace(&self, p: &mut Poly) {
+        for (i, plan) in self.plan.iter().enumerate() {
+            plan.inv(&mut p.coeffs[i]);
+            plan.normalize(&mut p.coeffs[i]);
         }
     }
 
-    /// Applies NTT to the given polynomial.
-    /// Does nothing if the polynomial is already in NTT form.
-    pub fn ntt(&self, poly: &mut Poly) {
-        if poly.is_ntt {
-            panic!("Polynomial is already in NTT form.");
-        }
-
-        for i in 0..self.moduli.len() {
-            self.plans[i].fwd(&mut poly.coeffs[i]);
-        }
-        poly.is_ntt = true;
+    /// add returns p_out = p0 + p1.
+    pub fn add(&self, p0: &Poly, p1: &Poly) -> Poly {
+        let mut p_out = Poly::new(self.degree, self.modulus.len());
+        self.add_assign(p0, p1, &mut p_out);
+        return p_out;
     }
 
-    /// Applies Inverse NTT to the given polynomial.
-    /// Does nothing if the polynomial is not in NTT form.
-    pub fn intt(&self, poly: &mut Poly) {
-        if !poly.is_ntt {
-            panic!("Polynomial is not in NTT form.");
-        }
-
-        for i in 0..self.moduli.len() {
-            self.plans[i].inv(&mut poly.coeffs[i]);
-            self.plans[i].normalize(&mut poly.coeffs[i]);
-        }
-        poly.is_ntt = false;
-    }
-
-    /// Sets the coefficient of the polynomial at the given index to the given value.
-    pub fn set_coeff(&self, p: &mut Poly, idx: usize, coeff: U256) {
-        for (i, &q) in self.moduli.iter().enumerate() {
-            p.coeffs[i][idx] = (coeff % U256::from(q)).as_u64();
-        }
-    }
-
-    /// Gets the coefficient of the polynomial at the given index as U256.
-    pub fn get_coeff(&self, p: &Poly, idx: usize) -> U256 {
-        let mut coeff = U256::ZERO;
-        for i in 0..self.moduli.len() {
-            coeff += U256::from(p.coeffs[i][idx]) * self.gadget[i];
-        }
-        coeff %= self.moduli_big;
-        return coeff;
-    }
-
-    /// Gets the balanced coefficient of the polynomial at the given index as I256.
-    pub fn get_coeff_balanced(&self, p: &Poly, idx: usize) -> I256 {
-        let coeff = self.get_coeff(p, idx);
-        let qhalf = self.moduli_big.clone() >> 1;
-        if coeff >= qhalf {
-            coeff.as_i256() - self.moduli_big.as_i256()
-        } else {
-            coeff.as_i256()
-        }
-    }
-
-    /// Maps a polynomial in R_Q to balanced form.
-    pub fn to_balanced(&self, p: &Poly) -> Vec<Vec<i64>> {
-        let mut vout = vec![vec![0; self.degree]; self.moduli.len()];
-        self.to_balanced_assign(p, &mut vout);
-        return vout;
-    }
-
-    /// Maps a polynomial in R_Q to balanced form.
-    pub fn to_balanced_assign(&self, p: &Poly, vout: &mut Vec<Vec<i64>>) {
-        let mut buff = p.clone();
-        if p.is_ntt {
-            self.intt(&mut buff);
-        }
-
-        for i in 0..self.moduli.len() {
-            let qs = self.moduli[i] as i64;
-            for (j, &c) in buff.coeffs[i].iter().enumerate() {
-                vout[i][j] = c as i64;
-                if vout[i][j] > qs / 2 {
-                    vout[i][j] -= qs;
+    /// add_assign computes p_out = p0 + p1.
+    pub fn add_assign(&self, p0: &Poly, p1: &Poly, p_out: &mut Poly) {
+        for i in 0..self.modulus.len() {
+            let qi = self.modulus[i];
+            for j in 0..self.degree {
+                p_out.coeffs[i][j] = p0.coeffs[i][j] + p1.coeffs[i][j];
+                if p_out.coeffs[i][j] >= qi {
+                    p_out.coeffs[i][j] -= qi;
                 }
             }
         }
     }
 
-    /// Adds p1, p2 and returns it.
-    pub fn add(&self, p1: &Poly, p2: &Poly) -> Poly {
-        if p1.is_ntt != p2.is_ntt {
-            panic!("Polynomials must be in the same form.");
-        }
-
-        let mut pout = self.new_poly();
-        self.add_assign(p1, p2, &mut pout);
-        return pout;
-    }
-
-    /// Adds p1, p2 and writes it to pout.
-    pub fn add_assign(&self, p1: &Poly, p2: &Poly, pout: &mut Poly) {
-        if p1.is_ntt != p2.is_ntt {
-            panic!("Polynomials must be in the same form.");
-        }
-
-        pout.is_ntt = p1.is_ntt;
-        for (i, &q) in self.moduli.iter().enumerate() {
+    /// add_inplace computes p_out += p0.
+    pub fn add_inplace(&self, p0: &Poly, p_out: &mut Poly) {
+        for i in 0..self.modulus.len() {
+            let qi = self.modulus[i];
             for j in 0..self.degree {
-                pout.coeffs[i][j] = p1.coeffs[i][j] + p2.coeffs[i][j];
-                if pout.coeffs[i][j] >= q {
-                    pout.coeffs[i][j] -= q;
+                p_out.coeffs[i][j] += p0.coeffs[i][j];
+                if p_out.coeffs[i][j] >= qi {
+                    p_out.coeffs[i][j] -= qi;
                 }
             }
         }
     }
 
-    /// Adds p to pout.
-    pub fn add_inplace(&self, p: &Poly, pout: &mut Poly) {
-        if p.is_ntt != pout.is_ntt {
-            panic!("Polynomials must be in the same form.");
-        }
+    /// sub returns p_out = p0 - p1.
+    pub fn sub(&self, p0: &Poly, p1: &Poly) -> Poly {
+        let mut p_out = Poly::new(self.degree, self.modulus.len());
+        self.sub_assign(p0, p1, &mut p_out);
+        return p_out;
+    }
 
-        for (i, &q) in self.moduli.iter().enumerate() {
+    /// sub_assign computes p_out = p0 - p1.
+    pub fn sub_assign(&self, p0: &Poly, p1: &Poly, p_out: &mut Poly) {
+        for i in 0..self.modulus.len() {
+            let qi = self.modulus[i];
             for j in 0..self.degree {
-                pout.coeffs[i][j] += p.coeffs[i][j];
-                if pout.coeffs[i][j] >= q {
-                    pout.coeffs[i][j] -= q;
+                p_out.coeffs[i][j] = p0.coeffs[i][j].wrapping_sub(p1.coeffs[i][j]);
+                if p_out.coeffs[i][j] >= qi {
+                    p_out.coeffs[i][j] += qi;
                 }
             }
         }
     }
 
-    // Subtracts p2 from p1 and returns it.
-    pub fn sub(&self, p1: &Poly, p2: &Poly) -> Poly {
-        if p1.is_ntt != p2.is_ntt {
-            panic!("Polynomials must be in the same form.");
-        }
-
-        let mut pout = self.new_poly();
-        self.sub_assign(p1, p2, &mut pout);
-        return pout;
-    }
-
-    // Subtracts p2 from p1 and writes it to pout.
-    pub fn sub_assign(&self, p1: &Poly, p2: &Poly, pout: &mut Poly) {
-        if p1.is_ntt != p2.is_ntt {
-            panic!("Polynomials must be in the same form.");
-        }
-
-        pout.is_ntt = p1.is_ntt;
-        for (i, &q) in self.moduli.iter().enumerate() {
+    /// sub_inplace computes p_out -= p0.
+    pub fn sub_inplace(&self, p0: &Poly, p_out: &mut Poly) {
+        for i in 0..self.modulus.len() {
+            let qi = self.modulus[i];
             for j in 0..self.degree {
-                if p1.coeffs[i][j] >= p2.coeffs[i][j] {
-                    pout.coeffs[i][j] = p1.coeffs[i][j] - p2.coeffs[i][j];
-                } else {
-                    pout.coeffs[i][j] = p1.coeffs[i][j] + (q - p2.coeffs[i][j]);
+                p_out.coeffs[i][j] = p_out.coeffs[i][j].wrapping_sub(p0.coeffs[i][j]);
+                if p_out.coeffs[i][j] >= qi {
+                    p_out.coeffs[i][j] -= qi;
                 }
             }
         }
     }
 
-    /// Subtracts p from pout.
-    pub fn sub_inplace(&self, p: &Poly, pout: &mut Poly) {
-        if p.is_ntt != pout.is_ntt {
-            panic!("Polynomials must be in the same form.");
-        }
+    /// mul returns p_out = p0 * p1.
+    pub fn mul(&self, p0: &Poly, p1: &Poly) -> Poly {
+        let mut p_out = Poly::new(self.degree, self.modulus.len());
+        self.mul_assign(p0, p1, &mut p_out);
+        return p_out;
+    }
 
-        for (i, &q) in self.moduli.iter().enumerate() {
+    /// mul_assign computes p_out = p0 * p1.
+    pub fn mul_assign(&self, p0: &Poly, p1: &Poly, p_out: &mut Poly) {
+        for (i, plan) in self.plan.iter().enumerate() {
+            p_out.coeffs[i].fill(0);
+            plan.mul_accumulate(&mut p_out.coeffs[i], &p0.coeffs[i], &p1.coeffs[i]);
+        }
+    }
+
+    /// mul_add_assign computes p_out += p0 * p1.
+    pub fn mul_add_assign(&self, p0: &Poly, p1: &Poly, p_out: &mut Poly) {
+        for (i, plan) in self.plan.iter().enumerate() {
+            plan.mul_accumulate(&mut p_out.coeffs[i], &p0.coeffs[i], &p1.coeffs[i]);
+        }
+    }
+
+    /// mul_sub_assign computes p_out -= p0 * p1.
+    pub fn mul_sub_assign(&self, p0: &Poly, p1: &Poly, p_out: &mut Poly) {
+        for (i, plan) in self.plan.iter().enumerate() {
+            let qi = self.modulus[i];
             for j in 0..self.degree {
-                if pout.coeffs[i][j] > p.coeffs[i][j] {
-                    pout.coeffs[i][j] -= p.coeffs[i][j];
-                } else {
-                    pout.coeffs[i][j] += q - p.coeffs[i][j];
-                }
+                p_out.coeffs[i][j] = qi - p_out.coeffs[i][j];
+            }
+            plan.mul_accumulate(&mut p_out.coeffs[i], &p0.coeffs[i], &p1.coeffs[i]);
+            for j in 0..self.degree {
+                p_out.coeffs[i][j] = qi - p_out.coeffs[i][j];
             }
         }
     }
 
-    /// Multiplies p1, p2 and returns it.
-    /// The input polynomials are assumed to be in NTT form.
-    /// The output polynomial is in NTT form.
-    pub fn mul(&self, p1: &Poly, p2: &Poly) -> Poly {
-        let mut pout = self.new_ntt_poly();
-        self.mul_assign(p1, p2, &mut pout);
-        return pout;
+    fn to_balanced(&self, x: u64, q: u64) -> i64 {
+        if x >= q / 2 {
+            return x as i64 - q as i64;
+        }
+        return x as i64;
     }
 
-    /// Multiplies p1, p2 and writes it to pout.
-    /// The input polynomials are assumed to be in NTT form.
-    /// The output polynomial is in NTT form.
-    pub fn mul_assign(&self, p1: &Poly, p2: &Poly, pout: &mut Poly) {
-        if !(p1.is_ntt && p2.is_ntt && pout.is_ntt) {
-            panic!("Polynomials must be in NTT form.");
-        }
+    /// to_bigint_balanced converts p to a big integer in the range [-q/2, q/2).
+    pub fn to_bigint_balanced(&self, p: &Poly) -> Vec<Integer> {
+        let mut p_intt = p.clone();
+        self.intt_inplace(&mut p_intt);
 
-        for i in 0..self.moduli.len() {
-            pout.coeffs[i].fill(0);
-            self.plans[i].mul_accumulate(&mut pout.coeffs[i], &p1.coeffs[i], &p2.coeffs[i]);
-        }
-    }
-
-    /// Multiplies p to pout.
-    /// The input polynomials are assumed to be in NTT form.
-    /// The output polynomial is in NTT form.
-    pub fn mul_inplace(&self, p: &Poly, pout: &mut Poly) {
-        if !(p.is_ntt && pout.is_ntt) {
-            panic!("Polynomials must be in NTT form.");
-        }
-
-        let mut buff = vec![0u64; self.degree];
-        for i in 0..self.moduli.len() {
-            buff.fill(0);
-            self.plans[i].mul_accumulate(&mut buff, &p.coeffs[i], &pout.coeffs[i]);
-            buff.clone_into(&mut pout.coeffs[i]);
-        }
-    }
-
-    /// Multiplies p1, p2 and adds it to pout.
-    /// The input polynomials are assumed to be in NTT form.
-    /// The output polynomial is in NTT form.
-    pub fn mul_add_inplace(&self, p1: &Poly, p2: &Poly, pout: &mut Poly) {
-        if !(p1.is_ntt && p2.is_ntt && pout.is_ntt) {
-            panic!("Polynomials must be in NTT form.");
-        }
-
-        for i in 0..self.moduli.len() {
-            self.plans[i].mul_accumulate(&mut pout.coeffs[i], &p1.coeffs[i], &p2.coeffs[i]);
-        }
-    }
-
-    /// Multiplies p1, p2 and subracts it from pout.
-    /// The input polynomials are assumed to be in NTT form.
-    /// The output polynomial is in NTT form.
-    pub fn mul_sub_inplace(&self, p1: &Poly, p2: &Poly, pout: &mut Poly) {
-        if !(p1.is_ntt && p2.is_ntt && pout.is_ntt) {
-            panic!("Polynomials must be in NTT form.");
-        }
-
-        let mut buff = vec![0u64; self.degree];
-        for i in 0..self.moduli.len() {
-            for j in 0..self.degree {
-                buff[j] = self.moduli[i] - p1.coeffs[i][j];
-            }
-            self.plans[i].mul_accumulate(&mut pout.coeffs[i], &buff, &p2.coeffs[i]);
-        }
-    }
-
-    /// Returns the square of L2 norm of the given polynomial.
-    pub fn norm(&self, p: &Poly) -> U256 {
-        let mut buffer = p.clone();
-        if p.is_ntt {
-            self.intt(&mut buffer);
-        }
-
-        let mut l2 = U256::ZERO;
+        let mut big_out = Vec::with_capacity(self.degree);
 
         for i in 0..self.degree {
-            let c = self.get_coeff_balanced(&buffer, i);
-            l2 += (c * c).as_u256();
+            let mut is_small = true;
+            let c_i64 = self.to_balanced(p_intt.coeffs[0][i], self.modulus[0]);
+            for j in 1..self.modulus.len() {
+                let c_j64 = self.to_balanced(p_intt.coeffs[j][i], self.modulus[j]);
+                if c_i64 != c_j64 {
+                    is_small = false;
+                    break;
+                }
+            }
+
+            if is_small {
+                big_out.push(Integer::from(c_i64));
+                continue;
+            }
+
+            big_out.push(Integer::ZERO);
+            for j in 0..self.modulus.len() {
+                let mut c = Integer::from(p_intt.coeffs[j][i]);
+                c *= &self.rns_gadget[j];
+                big_out[i] += &c;
+            }
+            big_out[i].modulo_mut(&self.modulus_big);
         }
-        return l2;
+
+        return big_out;
+    }
+
+    /// norm returns the square of 2-norm of p.
+    pub fn norm_sq(&self, p: &Poly) -> f64 {
+        let big = self.to_bigint_balanced(p);
+
+        let mut norm = Integer::ZERO;
+        for i in 0..self.degree {
+            norm += &big[i] * &big[i];
+        }
+
+        return norm.to_f64();
     }
 }

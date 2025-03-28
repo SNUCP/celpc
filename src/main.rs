@@ -1,62 +1,50 @@
-#![allow(non_snake_case)]
-
-use std::time::Instant;
-
-use ethnum::U256;
-use polycom::{CommitKey, Parameters, PolynomialProver, PolynomialVerifier};
+use celpc::prelude::*;
+use rug::Integer;
+use std::time::*;
 
 fn main() {
-    with_params(Parameters::N_19());
-    with_params(Parameters::N_21());
-    with_params(Parameters::N_23());
-    with_params(Parameters::N_25());
-}
+    let params = Parameters::new(ParametersLiteral::logn_19_logp_256());
+    let ck = AjtaiCommitKey::new(&params);
+    let mut prover = Prover::new(&params, &ck);
+    let mut verifier = Verifier::new(&params, &ck);
 
-fn with_params(pp: Parameters) {
-    println!(
-        "Current Parameters: N = 2^{} with p = {}^{} + 1.",
-        pp.N.ilog2(),
-        pp.b,
-        pp.kap
-    );
+    let mut v = vec![Integer::ZERO; params.degree()];
+    for i in 0..params.degree() {
+        prover.oracle.read_big_mod_assign(&mut v[i]);
+    }
+    let mut x = Integer::ZERO;
+    prover.oracle.read_big_mod_assign(&mut x);
 
     let now = Instant::now();
-    let ck = CommitKey::new(&pp, &[0, 0, 0, 0]);
-    let mut prover = PolynomialProver::new(&pp, &ck);
-    let mut verifier = PolynomialVerifier::new(&pp, &ck);
-    println!("setup: {:?}", now.elapsed());
-
-    let p = vec![U256::ONE; pp.N];
-    let x = U256::ONE;
+    let (com, open) = prover.commit(&v);
+    let open_pf = prover.prove_opening(&com, &open);
+    let eval_pf = prover.evaluate(x.clone(), &open);
+    println!("commit time: {:?}", now.elapsed());
 
     let now = Instant::now();
-    let pc = prover.commit(&p);
-    println!("commit: {:?}", now.elapsed());
+    let (com_plain, open_plain) = prover.commit_plain(&v);
+    let open_pf_plain = prover.prove_opening_plain(&com_plain, &open_plain);
+    let eval_pf_plain = prover.evaluate_plain(x.clone(), &open_plain);
+    println!("commit_plain time: {:?}", now.elapsed());
 
     let now = Instant::now();
-    let _ = prover.commit_nozk(&p);
-    println!("commit (no zk): {:?}", now.elapsed());
+    let open_pf_vf = verifier.verify_opening_proof(&com, &open_pf);
+    println!("verify_opening_proof time: {:?}", now.elapsed());
+    println!("open_pf_vf: {:?}", open_pf_vf);
 
     let now = Instant::now();
-    let (y, ep) = prover.evaluate(x, &pc);
-    println!("evaluate: {:?}", now.elapsed());
-    println!("evaluate result: {:?} ?= {:?}", y, pp.N);
+    let eval_pf_vf = verifier.verify_evaluation_proof(x.clone(), &com, &eval_pf);
+    println!("verify_evaluation_proof time: {:?}", now.elapsed());
+    println!("eval_pf_vf: {:?}", eval_pf_vf);
 
     let now = Instant::now();
-    let v = verifier.verify_evaluation(x, y, &pc, &ep);
-    println!("eval_verify: {:?}", now.elapsed());
-    println!("eval_verify result: {}", v);
+    let open_pf_plain_vf = verifier.verify_opening_proof_plain(&com_plain, &open_pf_plain);
+    println!("verify_opening_proof_plain time: {:?}", now.elapsed());
+    println!("open_pf_plain_vf: {:?}", open_pf_plain_vf);
 
     let now = Instant::now();
-    let op = prover.prove(&pc);
-    println!("open: {:?}", now.elapsed());
-
-    let now = Instant::now();
-    let _ = prover.prove_nozk(&pc);
-    println!("open (no zk): {:?}", now.elapsed());
-
-    let now = Instant::now();
-    let v = verifier.verify(&pc, &op);
-    println!("open_verify: {:?}", now.elapsed());
-    println!("open_verify result: {}", v);
+    let eval_pf_plain_vf =
+        verifier.verify_evaluation_proof_plain(x.clone(), &com_plain, &eval_pf_plain);
+    println!("verify_evaluation_proof_plain time: {:?}", now.elapsed());
+    println!("eval_pf_plain_vf: {:?}", eval_pf_plain_vf);
 }

@@ -1,11 +1,7 @@
-mod uniform;
-pub use uniform::*;
-
-mod oracle;
-pub use oracle::*;
-
 mod cdt;
-pub use cdt::*;
+mod cosac;
+mod uniform;
 
-mod convolve;
-pub use convolve::*;
+pub use cdt::TwinCDTSampler;
+pub use cosac::COSACSampler;
+pub use uniform::UniformSampler;

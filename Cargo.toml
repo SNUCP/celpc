@@ -1,15 +1,19 @@
 [package]
-name = "polycom"
+name = "celpc"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-concrete-ntt = { version = "0.1", features = ["nightly"] }
+tfhe-ntt = "0.5.0"
 rug = "1.22.0"
 rand = "0.8.5"
 sha3 = "0.10"
-ethnum = "1.4.0"
-primitive-types = "0.12.2"
-float_extras = "0.1.6"
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "celpc"
+harness = false

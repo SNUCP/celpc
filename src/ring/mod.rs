@@ -1,5 +1,5 @@
-mod ring;
-pub use ring::*;
-
 mod poly;
-pub use poly::*;
+mod ring;
+
+pub use poly::Poly;
+pub use ring::Ring;
